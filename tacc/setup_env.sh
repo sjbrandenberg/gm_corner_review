@@ -35,5 +35,5 @@ python -c "import gmcr, obspy, h5py, ucla_geotech_tools.auto_fchp; print('gmcr e
 
 echo "Packing env to $PACK"
 rm -f "$PACK"
-conda pack -n gmcr -o "$PACK" --ignore-editable-packages
+conda-pack -p "$CONDA_PREFIX" -o "$PACK" --ignore-editable-packages  # conda-pack lives in the gmcr env, not base
 echo "Done. Re-run this script after changing gmcr code so the packed env is updated."
