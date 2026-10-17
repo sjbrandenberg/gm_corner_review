@@ -63,6 +63,16 @@ exit
 `setup_env.sh` installs the package into the env, so **rerun it after changing gmcr code**.
 The env includes the Globus CLI.
 
+`conda` is not a TACC module: every new login needs Miniforge's setup script before
+`conda activate`. Add a shortcut once (rather than `conda init`, which edits your login
+shell and can interfere with TACC modules):
+
+```bash
+echo "alias gmcr='source \$WORK/miniforge3/etc/profile.d/conda.sh && conda activate gmcr'" >> ~/.bashrc
+source ~/.bashrc
+gmcr          # activates the env; the commands below assume it is active
+```
+
 ### 0.2 Globus CLI
 
 On a login node:
