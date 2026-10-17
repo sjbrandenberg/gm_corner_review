@@ -75,26 +75,48 @@ gmcr          # activates the env; the commands below assume it is active
 
 ### 0.2 Globus CLI
 
+**Prerequisite (once): link your CILogon identity to your TACC account**, or Globus can't
+reach DesignSafe on Corral (DesignSafe Globus guide, steps 1-3): log in at
+https://cilogon.org with your institutional account and copy the **ePPN** under *User
+Attributes*; paste it under **ePPN** at https://accounts.tacc.utexas.edu and save; allow
+~30 minutes to propagate.
+
 On a login node:
 
 ```bash
-source $WORK/miniforge3/etc/profile.d/conda.sh && conda activate gmcr
-globus login --no-local-server        # prints a URL; log in in a browser, paste the code back
-globus endpoint search "DesignSafe"   # note the id of the DesignSafe / Corral collection
-globus endpoint search "Stampede3"    # note the id of the TACC Stampede3 collection
+gmcr                                      # activate the env (alias from 0.1)
+globus login --no-local-server            # prints a URL; log in in a browser, paste the code back
+globus endpoint search "TACC Corral3" --format json --jmespath "DATA[].[id, display_name, owner_string]"
+globus endpoint search "Stampede3"    --format json --jmespath "DATA[].[id, display_name, owner_string]"
 ```
 
-Put the two ids in `~/.bashrc` (or export them in each session):
+* DesignSafe: use **"TACC Corral3 with CILogon Authentication"** (DesignSafe's CLI guide).
+  Searching "DesignSafe" finds nothing.
+* Stampede3: use the **mapped collection "TACC Stampede3 GCS v5.4 Filesystems"**
+  (`1e9ddd41-fe4b-406f-95ff-f3d79f9cb523` as of October 2026). The entries named
+  "...Endpoint" are the servers behind it, not collections.
+
+Put the ids in `~/.bashrc`:
 
 ```bash
-export DESIGNSAFE_COLLECTION=<id>
-export STAMPEDE3_COLLECTION=<id>
+echo 'export DESIGNSAFE_COLLECTION=<TACC Corral3 id>' >> ~/.bashrc
+echo 'export STAMPEDE3_COLLECTION=1e9ddd41-fe4b-406f-95ff-f3d79f9cb523' >> ~/.bashrc
+source ~/.bashrc
 ```
 
-Activate both collections once in the Globus web app (https://app.globus.org, File
-Manager), logging in with your TACC account. While you're there, open the DesignSafe
-collection, find the project folder that holds the event directories, and **note its path
-as Globus shows it**: that is `--globus-root` below.
+Your project's Corral path is `/corral/projects/NHERI/projects/<project-uuid>/`, the same
+path in the Globus collection and on the login nodes, so `--globus-root` equals
+`--corral-root` below. The UUID is shown when you click the blue text "Learn how to
+transfer data to this project" under the project description in the Data Depot.
+
+Check both sides. The first `ls` on each collection asks for consent: run the
+`globus session consent ...` command it prints, adding `--no-local-server`, then repeat
+the `ls`.
+
+```bash
+globus ls "$STAMPEDE3_COLLECTION:$SCRATCH/"
+globus ls "$DESIGNSAFE_COLLECTION:/corral/projects/NHERI/projects/<project-uuid>/"
+```
 
 ### 0.3 Batch lists
 
@@ -111,7 +133,7 @@ Then split it into batches of whole event folders:
 cd $WORK/gm_corner_review
 python tacc/globus_batches.py \
     --corral-root /corral/projects/NHERI/projects/<id>/<folder> \
-    --globus-root /<same folder as Globus shows it> \
+    --globus-root /corral/projects/NHERI/projects/<id>/<folder> \
     --dest-root   $SCRATCH/gm_stage \
     --batch-gb 400 \
     --out $SCRATCH/gmcr_run/globus
