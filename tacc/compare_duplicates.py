@@ -75,6 +75,9 @@ def review_summary(path):
 
 def main():
     out = Path(sys.argv[1])
+    if not (out / "events.csv").exists() or not (out / "duplicates.csv").exists():
+        sys.exit(f"{out} has no events.csv/duplicates.csv: run tacc/globus_batches.py "
+                 f"(current version, without --skip) with --out {out} first")
     events = list(csv.DictReader(open(out / "events.csv", newline="")))
     dup_ids = {r["comcatid"] for r in csv.DictReader(open(out / "duplicates.csv", newline=""))}
     copies = defaultdict(list)
