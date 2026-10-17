@@ -84,6 +84,9 @@ def main():
     p.add_argument("--skip", default=None,
                    help="CSV with columns location, comcatid of event copies to leave out "
                         "(e.g. skip.csv from tacc/compare_duplicates.py)")
+    p.add_argument("--select", default=None,
+                   help="CSV with columns location, comcatid, file: transfer only these files "
+                        "(select.csv from tacc/scan_reviews.py)")
     p.add_argument("--src-collection", default="$DESIGNSAFE_COLLECTION")
     p.add_argument("--dst-collection", default="$STAMPEDE3_COLLECTION")
     a = p.parse_args()
@@ -104,6 +107,10 @@ def main():
     seen = defaultdict(list)
     all_events = []
     n_skipped = [0, 0]
+    select = None
+    if a.select:
+        with open(a.select, newline="") as fsel:
+            select = {(r["location"], r["comcatid"], r["file"]) for r in csv.DictReader(fsel)}
     for root in roots:
         per_label = defaultdict(lambda: [0, 0])
         for label, name, path, files in event_files(root):
@@ -112,6 +119,13 @@ def main():
                 n_skipped[0] += 1
                 n_skipped[1] += sum(b for _, b in files)
                 continue
+            if select is not None:
+                kept = [(f, b) for f, b in files if (label, name, f) in select]
+                n_skipped[0] += len(files) - len(kept)
+                n_skipped[1] += sum(b for f, b in files) - sum(b for _, b in kept)
+                files = kept
+                if not files:
+                    continue
             events.append((label, root, name, path, files))
             seen[name].append(label)
             per_label[label][0] += 1
@@ -120,6 +134,8 @@ def main():
             print(f"{root}: {label}: {n} event directories, {b / 1e12:.2f} TB")
     if skip:
         print(f"skipped {n_skipped[0]} event copies listed in {a.skip} ({n_skipped[1] / 1e12:.2f} TB)")
+    if select is not None:
+        print(f"--select: left out {n_skipped[0]} files not in {a.select} ({n_skipped[1] / 1e12:.2f} TB)")
     with open(out / "events.csv", "w", newline="") as fe:  # every event copy found
         w = csv.writer(fe)
         w.writerow(["location", "comcatid", "path", "files", "bytes"])

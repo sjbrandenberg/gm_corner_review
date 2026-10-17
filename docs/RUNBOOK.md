@@ -157,21 +157,24 @@ python tacc/globus_batches.py \
   would count twice in training, though: decide which folder is authoritative before
   training (e.g. drop the other copies from `traces_all.parquet`).
 
-**Duplicates: compare the copies before staging.** Events found in several locations
-(e.g. `data/` and `data/data/`) may be identical copies, an automatic run next to the
-reviewed one, or copies with different stations reviewed. On the login node:
+**Choose the files to transfer by their reviews.** Event folders hold many kinds of
+`.h5` files (`workspace.h5`, `<id>.h5`, per-analyst copies such as `workspace-Shako.h5`,
+`-Copy1`, Frontera runs, `p_arrival_shift` experiments, `-old`/`-corrupt` files), the same
+event can sit in several locations (`data/`, `data/data/`, ...), and many events were never
+reviewed. On the login node, scan every file's review records and rebuild the batches from
+the selection:
 
 ```bash
-python tacc/compare_duplicates.py $SCRATCH/gmcr_run/globus      # reads review records only
-python tacc/globus_batches.py --root $PRJ/data --root $PRJ/data2 --root $PRJ/data_new     --dest-root $SCRATCH/gm_stage --batch-gb 400 --out $SCRATCH/gmcr_run/globus     --skip $SCRATCH/gmcr_run/globus/skip.csv
+python tacc/scan_reviews.py $SCRATCH/gmcr_run/globus            # --workers 8 by default
+python tacc/globus_batches.py --root $PRJ/data --root $PRJ/data2 --root $PRJ/data_new     --dest-root $SCRATCH/gm_stage --batch-gb 400 --out $SCRATCH/gmcr_run/globus     --select $SCRATCH/gmcr_run/globus/select.csv
 ```
 
-`compare_duplicates.py` classifies each duplicated event (identical / nested /
-unreviewed / different / none_reviewed), writes `duplicates_compared.csv` (one row per
-copy: reviewed and accepted traces, last review time, users, gmprocess version) and
-`skip.csv` (copies that add no reviews; "different" events keep all copies). Look at
-`duplicates_compared.csv` before using `--skip`. Run it before the `--skip` rerun, which
-rewrites `duplicates.csv` with only the remaining duplicates.
+`scan_reviews.py` reads, for each reviewed trace, the decision and the analyst's corners,
+and marks each file `unreadable`, `unreviewed` (automatic output only), `redundant` (all of
+its reviews are in another file of the event; ties go to `workspace.h5`/`<id>.h5` and the
+top-level location), or `selected`. Files with different reviews of the same traces (e.g.
+two analysts) are all selected. It prints the selected events, files, TB, and reviewed
+traces; `files_reviews.csv` has one row per file. Check it before transferring.
 
 It prints the number of event folders and files per root and the batches (about 10 for
 4 TB), and writes `b001.txt`, `b002.txt`, ... (Globus batch files), `manifest.csv` (root,
