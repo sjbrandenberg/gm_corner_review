@@ -120,29 +120,39 @@ globus ls "$DESIGNSAFE_COLLECTION:/corral/projects/NHERI/projects/<project-uuid>
 
 ### 0.3 Batch lists
 
-On a login node (they can see `/corral`). Find the project on Corral:
+On a login node (they can see `/corral`). The workspaces are in the gmprocess project
+`4525470084104262126-242ac117-0001-012`, in three folders of event directories: `data/`,
+`data2/`, and `data_new/` (the ~20 GB, ~3.9 TB, and ~34 GB of the sizing above). Check
+first, e.g. `ls /corral/projects/NHERI/projects/$PRJ/data2 | head` and
+`ls /corral/projects/NHERI/projects/$PRJ/data2/<a comcatid>/`.
 
-```bash
-ls /corral/projects/NHERI/projects/        # DesignSafe projects, one folder per project id
-ls /corral/projects/NHERI/projects/<id>/   # find the folder with the <comcatid>/ directories
-```
-
-Then split it into batches of whole event folders:
+Split them into batches of whole events:
 
 ```bash
 cd $WORK/gm_corner_review
+PRJ=/corral/projects/NHERI/projects/4525470084104262126-242ac117-0001-012
 python tacc/globus_batches.py \
-    --corral-root /corral/projects/NHERI/projects/<id>/<folder> \
-    --globus-root /corral/projects/NHERI/projects/<id>/<folder> \
-    --dest-root   $SCRATCH/gm_stage \
+    --root $PRJ/data --root $PRJ/data2 --root $PRJ/data_new \
+    --dest-root $SCRATCH/gm_stage \
     --batch-gb 400 \
     --out $SCRATCH/gmcr_run/globus
 ```
 
-It prints the batches (about 10 for 4 TB) and writes `b001.txt`, `b002.txt`, ... (Globus
-batch files), `manifest.csv` (which event is in which batch), and `commands.sh`. Look at
-the first lines of `b001.txt`: the source paths must be the DesignSafe collection's paths
-and the destination paths absolute paths under `$SCRATCH/gm_stage/b001/`.
+* Only the `.h5` files directly inside each event folder are listed (one Globus line per
+  file), so `raw/` waveforms, plots, and reports are not transferred.
+* Staged files go to `$SCRATCH/gm_stage/<batch>/<root>__<comcatid>/<file>.h5`; the root
+  name keeps events that exist in more than one folder apart.
+* If an event is in more than one folder, the script warns and lists it in
+  `duplicates.csv`. Each copy is extracted (keyed by folder), and cross-validation groups
+  by the event id inside the files, so copies never straddle a training/test split. They
+  would count twice in training, though: decide which folder is authoritative before
+  training (e.g. drop the other copies from `traces_all.parquet`).
+
+It prints the number of event folders and files per root and the batches (about 10 for
+4 TB), and writes `b001.txt`, `b002.txt`, ... (Globus batch files), `manifest.csv` (root,
+event, batch, size), and `commands.sh`. Look at the first lines of `b001.txt`: each line is
+a quoted source path under `$PRJ/...` and a destination under `$SCRATCH/gm_stage/b001/`.
+Check that the total matches the ~3.97 TB measured.
 
 ## 1. Test on a few files
 

@@ -113,7 +113,7 @@ def process_file(path, outdir, reviewed_only=False, compute_psa=True, label=None
                     if not rv or rv.get("reviewed", 0) != 1:
                         continue
                 log["n_traces"] += 1
-                key = f"{ws.event_id}|{tid}|{path.stem}"
+                key = f"{ws.event_id}|{tid}|{stem}"  # stem = <event folder>__<file stem>
                 try:
                     rec, curves = ft.trace_features(ws, tid, compute_psa=compute_psa)
                     log["n_ok"] += 1
