@@ -11,7 +11,8 @@ Run on a Stampede3 *login* node (login nodes see /corral; compute nodes don't):
 For every event directory (<comcatid>/ containing .h5 files) it measures the .h5 size
 and packs directories, in sorted order, into batches of about --batch-gb. It writes
 
-    <out>/b001.txt ...   Globus CLI batch files: "--recursive SRC DST" per event folder,
+    <out>/b001.txt ...   Globus CLI batch files: "--recursive SRC DST" per event folder
+                         (paths quoted, so folders with spaces work),
                          SRC under --globus-root, DST = <dest-root>/b001/<comcatid>
     <out>/manifest.csv   comcatid, batch, files, bytes
     <out>/commands.sh    the `globus transfer` command for each batch
@@ -25,6 +26,7 @@ read it off. Destination paths must be absolute paths on the Stampede3 collectio
 import argparse
 import csv
 import os
+import shlex
 from pathlib import Path
 
 
@@ -80,7 +82,8 @@ def main():
                 w.writerow([name, tag, files, nbytes])
                 src = f"{a.globus_root.rstrip('/')}/{name}"
                 dst = f"{dest_root}/{tag}/{name}"
-                lines.append(f"--recursive {src} {dst}")
+                # quoted: project folders can contain spaces (e.g. "Will be Public")
+                lines.append(f"--recursive {shlex.quote(src)} {shlex.quote(dst)}")
             (out / f"{tag}.txt").write_text("\n".join(lines) + "\n")
             cmds.append(f"globus transfer {a.src_collection} {a.dst_collection} "
                         f"--batch {out / (tag + '.txt')} --label gmcr-{tag} --verify-checksum")
