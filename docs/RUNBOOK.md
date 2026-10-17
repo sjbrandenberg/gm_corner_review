@@ -138,10 +138,19 @@ python tacc/globus_batches.py \
     --out $SCRATCH/gmcr_run/globus
 ```
 
-* Only the `.h5` files directly inside each event folder are listed (one Globus line per
-  file), so `raw/` waveforms, plots, and reports are not transferred.
-* Staged files go to `$SCRATCH/gm_stage/<batch>/<root>__<comcatid>/<file>.h5`; the root
-  name keeps events that exist in more than one folder apart.
+* Each root is searched at any depth: every folder that directly holds `.h5` files is an
+  event folder (e.g. `data/<comcatid>/`, the nested `data/data/<comcatid>/`, and
+  `data/data/<group>/<comcatid>/`). Only those `.h5` files are listed (one Globus line per
+  file), so `raw/` waveforms, plots, and reports are not transferred. `.h5` files in
+  subfolders *of* an event folder are not transferred either; the script lists them in
+  `nested_not_transferred.csv` and warns.
+* Staged files go to `$SCRATCH/gm_stage/<batch>/<location>__<comcatid>/<file>.h5`, where
+  the location is the root plus any folders above the event (`data`, `data-data`, ...),
+  so events that exist in more than one place stay apart.
+* Events are often split over several workspace files (the nc73819746 example holds 7 of
+  the event's stations). After extraction, `summary.json` → `duplicate_traces` and
+  `duplicate_traces.csv` show traces that came out of more than one file (overlapping
+  workspaces or copies in different folders).
 * If an event is in more than one folder, the script warns and lists it in
   `duplicates.csv`. Each copy is extracted (keyed by folder), and cross-validation groups
   by the event id inside the files, so copies never straddle a training/test split. They

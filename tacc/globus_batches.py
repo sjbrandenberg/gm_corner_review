@@ -36,15 +36,40 @@ from collections import defaultdict
 from pathlib import Path
 
 
-def event_files(root):
-    """(comcatid, [(file name, bytes), ...]) for each event directory with .h5 files."""
-    for entry in sorted(os.scandir(root), key=lambda e: e.name):
-        if not entry.is_dir():
+SKIP_DIRS = {"raw", "plots", "__pycache__", ".ipynb_checkpoints"}
+NESTED = []  # .h5 files inside subfolders of event directories (not transferred)
+
+
+def _nested_h5(event_dir):
+    for dirpath, dirnames, filenames in os.walk(event_dir):
+        if dirpath == event_dir:
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
             continue
-        files = sorted((f.name, f.stat().st_size) for f in os.scandir(entry.path)
-                       if f.is_file() and f.name.endswith(".h5"))
-        if files:
-            yield entry.name, files
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for f in filenames:
+            if f.endswith(".h5"):
+                p = os.path.join(dirpath, f)
+                NESTED.append((p, os.stat(p).st_size))
+
+
+def event_files(root):
+    """(location label, comcatid, path, [(file name, bytes), ...]) for every event
+    directory under root, at any depth. An event directory is one that directly holds
+    .h5 files; the search doesn't descend into event directories or raw/ folders. The
+    label is the root's name plus the folders between root and the event directory
+    (e.g. root data, event data/data/us7000fthc -> label "data-data")."""
+    base = os.path.basename(root.rstrip("/"))
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        h5 = sorted(f for f in filenames if f.endswith(".h5"))
+        if not h5 or os.path.abspath(dirpath) == os.path.abspath(root):
+            continue
+        dirnames[:] = []  # an event directory: don't look inside it ...
+        _nested_h5(dirpath)  # ... except to report .h5 files that would be left out
+        rel = os.path.relpath(os.path.dirname(dirpath), root)
+        label = base if rel == "." else base + "-" + rel.replace(os.sep, "-").replace(" ", "_")
+        files = [(f, os.stat(os.path.join(dirpath, f)).st_size) for f in h5]
+        yield label, os.path.basename(dirpath), dirpath, files
 
 
 def main():
@@ -65,23 +90,26 @@ def main():
     dest_root = os.path.abspath(os.path.expandvars(a.dest_root))
     gmap = dict(g.split("=", 1) for g in a.globus_root)
     roots = [r.rstrip("/") for r in a.root]
-    labels = [os.path.basename(r) for r in roots]
-    if len(set(labels)) != len(labels):
-        raise SystemExit(f"root folder names must differ (got {labels})")
+    if len({os.path.basename(r) for r in roots}) != len(roots):
+        raise SystemExit("root folder names must differ")
 
-    events = []  # (label, root, comcatid, files)
+    events = []  # (label, root, comcatid, event dir, files)
     seen = defaultdict(list)
-    for root, label in zip(roots, labels):
-        n0 = len(events)
-        for name, files in event_files(root):
-            events.append((label, root, name, files))
+    for root in roots:
+        per_label = defaultdict(lambda: [0, 0])
+        for label, name, path, files in event_files(root):
+            events.append((label, root, name, path, files))
             seen[name].append(label)
-        print(f"{root}: {len(events) - n0} event directories")
+            per_label[label][0] += 1
+            per_label[label][1] += sum(b for _, b in files)
+        for label, (n, b) in sorted(per_label.items()):
+            print(f"{root}: {label}: {n} event directories, {b / 1e12:.2f} TB")
+    labels = {e[0] for e in events}
 
     limit = a.batch_gb * 1e9
     batches, current, size = [], [], 0
     for ev in events:
-        nbytes = sum(b for _, b in ev[3])
+        nbytes = sum(b for _, b in ev[4])
         if current and size + nbytes > limit:
             batches.append(current)
             current, size = [], 0
@@ -97,11 +125,12 @@ def main():
         for k, batch in enumerate(batches, 1):
             tag = f"b{k:03d}"
             lines = []
-            for label, root, name, files in batch:
+            for label, root, name, path, files in batch:
                 w.writerow([label, name, tag, len(files), sum(b for _, b in files)])
+                rel = os.path.relpath(path, root).replace(os.sep, "/")
                 src_root = gmap.get(root, root)
                 for fname, _ in files:
-                    src = f"{src_root}/{name}/{fname}"
+                    src = f"{src_root}/{rel}/{fname}"
                     dst = f"{dest_root}/{tag}/{label}__{name}/{fname}"
                     lines.append(f"{shlex.quote(src)} {shlex.quote(dst)}")
             (out / f"{tag}.txt").write_text("\n".join(lines) + "\n")
@@ -125,7 +154,17 @@ def main():
         gb = sum(b for *_, files in batch for _, b in files) / 1e9
         print(f"  b{k:03d}: {len(batch):6d} events {gb:8.1f} GB")
     if dups:
-        print(f"WARNING: {len(dups)} comcatids appear under more than one root: see {out / 'duplicates.csv'}")
+        print(f"WARNING: {len(dups)} comcatids appear in more than one location: see {out / 'duplicates.csv'}")
+    if NESTED:
+        with open(out / "nested_not_transferred.csv", "w", newline="") as fn:
+            w = csv.writer(fn)
+            w.writerow(["path", "bytes"])
+            w.writerows(NESTED)
+        print(f"WARNING: {len(NESTED)} .h5 files ({sum(b for _, b in NESTED) / 1e12:.2f} TB) are in "
+              f"subfolders of event directories and are NOT in the batches, e.g.")
+        for p, _ in NESTED[:5]:
+            print(f"    {p}")
+        print(f"  full list: {out / 'nested_not_transferred.csv'}")
     print(f"batch files, manifest, and commands in {out}")
 
 

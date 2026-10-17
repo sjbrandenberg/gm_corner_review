@@ -55,6 +55,19 @@ def main(feat_dir):
         "review_usernames": rev["review_username"].value_counts().head(20).to_dict() if "review_username" in rev else {},
         "extract_seconds_total": round(sum(lg.get("seconds", 0) for lg in logs), 1),
     }
+    # the same trace from more than one workspace file (events are split across files, and
+    # some events exist in several folders): report them so one copy can be chosen
+    if {"event_id", "trace_id", "source_file"} <= set(traces.columns):
+        stem = traces["trace_key"].str.split("|").str[-1]
+        dup = traces.assign(stem=stem).groupby(["event_id", "trace_id"])["stem"].transform("nunique") > 1
+        d = traces.loc[dup, ["event_id", "trace_id", "trace_key", "y_reviewed", "y_accepted", "y_fchp"]
+                       if "y_fchp" in traces else ["event_id", "trace_id", "trace_key"]]
+        d.sort_values(["event_id", "trace_id"]).to_csv(feat / "duplicate_traces.csv", index=False)
+        summary["duplicate_traces"] = {
+            "traces_in_more_than_one_file": int(dup.sum()),
+            "distinct_traces_affected": int(d[["event_id", "trace_id"]].drop_duplicates().shape[0]),
+            "events_affected": int(d["event_id"].nunique()),
+        }
     staged = [lg for lg in logs if "stage_bytes" in lg]
     if staged:
         gb = sum(lg["stage_bytes"] for lg in staged) / 1e9
