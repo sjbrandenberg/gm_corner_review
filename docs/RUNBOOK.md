@@ -157,6 +157,22 @@ python tacc/globus_batches.py \
   would count twice in training, though: decide which folder is authoritative before
   training (e.g. drop the other copies from `traces_all.parquet`).
 
+**Duplicates: compare the copies before staging.** Events found in several locations
+(e.g. `data/` and `data/data/`) may be identical copies, an automatic run next to the
+reviewed one, or copies with different stations reviewed. On the login node:
+
+```bash
+python tacc/compare_duplicates.py $SCRATCH/gmcr_run/globus      # reads review records only
+python tacc/globus_batches.py --root $PRJ/data --root $PRJ/data2 --root $PRJ/data_new     --dest-root $SCRATCH/gm_stage --batch-gb 400 --out $SCRATCH/gmcr_run/globus     --skip $SCRATCH/gmcr_run/globus/skip.csv
+```
+
+`compare_duplicates.py` classifies each duplicated event (identical / nested /
+unreviewed / different / none_reviewed), writes `duplicates_compared.csv` (one row per
+copy: reviewed and accepted traces, last review time, users, gmprocess version) and
+`skip.csv` (copies that add no reviews; "different" events keep all copies). Look at
+`duplicates_compared.csv` before using `--skip`. Run it before the `--skip` rerun, which
+rewrites `duplicates.csv` with only the remaining duplicates.
+
 It prints the number of event folders and files per root and the batches (about 10 for
 4 TB), and writes `b001.txt`, `b002.txt`, ... (Globus batch files), `manifest.csv` (root,
 event, batch, size), and `commands.sh`. Look at the first lines of `b001.txt`: each line is

@@ -81,6 +81,9 @@ def main():
     p.add_argument("--dest-root", required=True)
     p.add_argument("--batch-gb", type=float, default=400.0)
     p.add_argument("--out", required=True)
+    p.add_argument("--skip", default=None,
+                   help="CSV with columns location, comcatid of event copies to leave out "
+                        "(e.g. skip.csv from tacc/compare_duplicates.py)")
     p.add_argument("--src-collection", default="$DESIGNSAFE_COLLECTION")
     p.add_argument("--dst-collection", default="$STAMPEDE3_COLLECTION")
     a = p.parse_args()
@@ -93,18 +96,34 @@ def main():
     if len({os.path.basename(r) for r in roots}) != len(roots):
         raise SystemExit("root folder names must differ")
 
+    skip = set()
+    if a.skip:
+        with open(a.skip, newline="") as fs:
+            skip = {(r["location"], r["comcatid"]) for r in csv.DictReader(fs)}
     events = []  # (label, root, comcatid, event dir, files)
     seen = defaultdict(list)
+    all_events = []
+    n_skipped = [0, 0]
     for root in roots:
         per_label = defaultdict(lambda: [0, 0])
         for label, name, path, files in event_files(root):
+            all_events.append((label, name, path, len(files), sum(b for _, b in files)))
+            if (label, name) in skip:
+                n_skipped[0] += 1
+                n_skipped[1] += sum(b for _, b in files)
+                continue
             events.append((label, root, name, path, files))
             seen[name].append(label)
             per_label[label][0] += 1
             per_label[label][1] += sum(b for _, b in files)
         for label, (n, b) in sorted(per_label.items()):
             print(f"{root}: {label}: {n} event directories, {b / 1e12:.2f} TB")
-    labels = {e[0] for e in events}
+    if skip:
+        print(f"skipped {n_skipped[0]} event copies listed in {a.skip} ({n_skipped[1] / 1e12:.2f} TB)")
+    with open(out / "events.csv", "w", newline="") as fe:  # every event copy found
+        w = csv.writer(fe)
+        w.writerow(["location", "comcatid", "path", "files", "bytes"])
+        w.writerows(all_events)
 
     limit = a.batch_gb * 1e9
     batches, current, size = [], [], 0
