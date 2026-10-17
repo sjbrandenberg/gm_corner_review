@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gmcr"
+version = "0.1.0"
+description = "Learn corner-frequency and accept/reject decisions from human-reviewed gmprocess workspaces"
+requires-python = ">=3.10"
+dependencies = ["numpy", "scipy", "h5py", "obspy>=1.4.1", "pandas", "pyarrow", "ucla_geotech_tools==3.0.3", "ucla_plha>=2.1.0", "pyproj", "requests"]
+
+[tool.setuptools]
+packages = ["gmcr"]

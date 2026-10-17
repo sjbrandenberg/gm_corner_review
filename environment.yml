@@ -1,0 +1,26 @@
+name: gmcr
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy
+  - h5py
+  - pyproj
+  - obspy>=1.4.1
+  - pandas
+  - pyarrow
+  - scikit-learn
+  - statsmodels
+  - lightgbm
+  - joblib
+  - requests
+  - matplotlib
+  - conda-pack
+  - pip
+  - pip:
+      # auto_fchp from 3.0.3 reproduces the review GUI's fchp exactly.
+      # (its response_spectrum.get_ARS is broken; gmcr has its own PSA.)
+      - ucla_geotech_tools==3.0.3
+      - ucla_plha>=2.1.0          # vectorized point-to-triangle distances
+      - globus-cli                # staging batches from DesignSafe (tacc/run_batch.sh)

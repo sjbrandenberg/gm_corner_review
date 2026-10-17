@@ -1,0 +1,13 @@
+*.h5
+*.parquet
+*.joblib
+models/
+__pycache__/
+*.json*.png
+*.tmp
+*.egg-info/
+build/
+dist/
+# credentials (nga-gm.org tokens etc.)
+*token*.txt
+.env
