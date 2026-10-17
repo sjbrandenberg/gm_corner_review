@@ -3,7 +3,8 @@
 *.joblib
 models/
 __pycache__/
-*.json*.png
+*.json
+*.png
 *.tmp
 *.egg-info/
 build/

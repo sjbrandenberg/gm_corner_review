@@ -1,0 +1,5 @@
+# keep Linux line endings for everything that runs on TACC
+* text=auto eol=lf
+*.h5 binary
+*.parquet binary
+*.png binary
