@@ -22,6 +22,9 @@ def main():
     p.add_argument("--extra-args", default="",
                    help="passed to gmcr.extract, e.g. --extra-args='--reviewed-only --delete-source'")
     p.add_argument("--limit", type=int, default=0, help="only first N files (testing)")
+    p.add_argument("--smallest-first", action="store_true",
+                   help="order files smallest first (quick tests with --limit); the default, "
+                        "largest first, lets a full run finish evenly")
     p.add_argument("--batch", default="", help="name of a staged batch: writes tasks_<batch>.txt "
                    "and chunks/<batch>/ so several batches can share one run directory")
     a = p.parse_args()
@@ -33,7 +36,7 @@ def main():
 
     # Largest files first so the long tasks don't straggle at the end
     files = sorted(Path(a.data_root).resolve().glob(a.pattern),
-                   key=lambda f: f.stat().st_size, reverse=True)
+                   key=lambda f: f.stat().st_size, reverse=not a.smallest_first)
     if a.limit:
         files = files[: a.limit]
     done = {f.stem for f in (out / "traces").glob("*.parquet")} if (out / "traces").exists() else set()
