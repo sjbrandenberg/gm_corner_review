@@ -20,8 +20,24 @@ MODELS_DIR=${MODELS_DIR:-$FEATURES_DIR/../models}
 REPO=${GMCR_REPO:-$SLURM_SUBMIT_DIR}
 [ -f "$REPO/scripts/train_corner_model.py" ] || REPO=$WORK/gm_corner_review
 CONDA_ROOT=${CONDA_ROOT:-$WORK/miniforge3}
-source "$CONDA_ROOT/etc/profile.d/conda.sh"
-conda activate gmcr
+PACK=${GMCR_PACK:-$WORK/gmcr_env.tar.gz}
+LOCAL=/tmp/gmcr_train_$SLURM_JOB_ID
+
+# $WORK (Stockyard) has given I/O errors on compute nodes: copy the code and the packed
+# env to node-local disk once, retrying, and run from there.
+retry() { for i in 1 2 3 4 5; do "$@" && return 0; echo "attempt $i failed: $*" >&2; sleep 30; done; return 1; }
+mkdir -p "$LOCAL"
+retry cp -r "$REPO/gmcr" "$REPO/scripts" "$LOCAL/"
+REPO=$LOCAL
+if [ -f "$PACK" ] && retry tar -xzf "$PACK" -C "$LOCAL" && "$LOCAL/bin/conda-unpack"; then
+    export PATH=$LOCAL/bin:$PATH
+else
+    echo "no usable $PACK; activating the env in $WORK" >&2
+    retry source "$CONDA_ROOT/etc/profile.d/conda.sh"
+    conda activate gmcr
+fi
+export PYTHONPATH=$REPO
+echo "python: $(command -v python)   code: $REPO"
 export OMP_NUM_THREADS=${SLURM_CPUS_ON_NODE:-48}
 
 if [ -d "$FEATURES_DIR/db" ]; then
