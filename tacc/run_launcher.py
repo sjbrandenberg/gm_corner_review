@@ -12,10 +12,17 @@ import pylauncher
 
 tasks = sys.argv[1]
 fixed = f"{tasks}.resolved"
+n = 0
 with open(tasks) as fi, open(fixed, "w") as fo:
     for line in fi:
+        if not line.strip():
+            continue
         if line.startswith("python "):
             line = sys.executable + line[len("python"):]
         fo.write(line)
+        n += 1
+if n == 0:
+    sys.exit(f"{tasks} has no tasks: make_tasks.py found no files to extract "
+             "(not staged yet, wrong folder, or all already extracted)")
 print(f"tasks: {fixed} (python = {sys.executable})", flush=True)
 pylauncher.ClassicLauncher(fixed, debug="job", cores=1)
