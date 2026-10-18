@@ -20,7 +20,11 @@
 set -euo pipefail
 RUN_DIR=${RUN_DIR:?set RUN_DIR}
 TASKS=${TASKS:-$RUN_DIR/tasks.txt}   # tasks_<batch>.txt for staged batches
-REPO=${SLURM_SUBMIT_DIR}
+# repository root: GMCR_REPO, else the submit directory, else $WORK/gm_corner_review
+REPO=${GMCR_REPO:-$SLURM_SUBMIT_DIR}
+[ -f "$REPO/tacc/run_launcher.py" ] || REPO=$WORK/gm_corner_review
+[ -f "$REPO/tacc/run_launcher.py" ] || { echo "can't find gm_corner_review (set GMCR_REPO)" >&2; exit 1; }
+echo "repo: $REPO"
 CONDA_ROOT=${CONDA_ROOT:-$WORK/miniforge3}
 PACK=${GMCR_PACK:-$WORK/gmcr_env.tar.gz}
 LOCAL_ENV=/tmp/gmcr_env_$SLURM_JOB_ID

@@ -16,7 +16,8 @@
 set -euo pipefail
 FEATURES_DIR=${FEATURES_DIR:?set FEATURES_DIR}
 MODELS_DIR=${MODELS_DIR:-$FEATURES_DIR/../models}
-REPO=${SLURM_SUBMIT_DIR}
+REPO=${GMCR_REPO:-$SLURM_SUBMIT_DIR}
+[ -f "$REPO/scripts/train_corner_model.py" ] || REPO=$WORK/gm_corner_review
 CONDA_ROOT=${CONDA_ROOT:-$WORK/miniforge3}
 source "$CONDA_ROOT/etc/profile.d/conda.sh"
 conda activate gmcr
