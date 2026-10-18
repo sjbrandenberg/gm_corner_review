@@ -150,6 +150,10 @@ def trace_features(ws, trace_id, compute_psa=True):
     # --- gmprocess automatic decisions
     tp = ws.processing_parameters(trace_id)
     cf = tp.get("corner_frequencies", {})
+    # The NGA-West3 config runs get_corner_frequencies (method "snr") and then
+    # ridder_fchp (the Ramos-Sepulveda polynomial check); when ridder_fchp raises a
+    # trace's corner, gmprocess sets type "snr_polyfit". fchp_gmp is the corner after both
+    # steps (what the analyst saw); snr2_flo below is the SNR corner before ridder_fchp.
     rec["fchp_gmp"] = cf.get("highpass", np.nan)
     rec["fclp_gmp"] = cf.get("lowpass", np.nan)
     rec["corner_method_gmp"] = cf.get("type")
@@ -170,7 +174,9 @@ def trace_features(ws, trace_id, compute_psa=True):
     rec["fit_success"] = fs.get("minimize_success")
     prov = ws.provenance(trace_id)
     rec["fchp_applied"], rec["fclp_applied"] = gr.applied_corners(prov)
-    rec["ridder_changed_fchp"] = (
+    # high-pass corner of the filter actually applied (provenance) differs from the stored
+    # corner, e.g. a later reprocessing with other corners
+    rec["applied_fchp_differs"] = (
         np.isfinite(rec["fchp_applied"]) and np.isfinite(rec["fchp_gmp"])
         and abs(rec["fchp_applied"] - rec["fchp_gmp"]) > 1e-6 * rec["fchp_gmp"]
     )

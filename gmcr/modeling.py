@@ -57,8 +57,9 @@ def base_features(df, include_site=True):
     X["ln_fchp_gmp"] = _log(df["fchp_gmp"])
     X["ln_fchp_gui"] = _log(df["fchp_gui"])
     X["gui_at_cap"] = df["gui_at_cap"].astype(float)
-    # automatic corner method gmprocess used ("snr", or "snr_polyfit" = the polynomial
-    # method); analysts kept its value less often with snr_polyfit in the test events
+    # 1 if gmprocess's ridder_fchp step (Ramos-Sepulveda polynomial check) raised the SNR
+    # corner (type "snr_polyfit"), 0 if the SNR corner was kept ("snr"); analysts kept the
+    # raised value less often in the test events (median ~0.57 vs ~0.80)
     X["method_polyfit"] = (df.get("corner_method_gmp", pd.Series("", index=df.index))
                            .astype(str).str.contains("polyfit")).astype(float)
     X["ln_fclp_gmp"] = _log(df["fclp_gmp"])
