@@ -52,6 +52,7 @@ else
     conda activate gmcr
 fi
 echo "python: $(command -v python)"
+export PYTHONPATH=$REPO${PYTHONPATH:+:$PYTHONPATH}   # gmcr from the repository: git pull is enough after changes
 
 module load pylauncher
 cd "$RUN_DIR"

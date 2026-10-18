@@ -57,6 +57,10 @@ def base_features(df, include_site=True):
     X["ln_fchp_gmp"] = _log(df["fchp_gmp"])
     X["ln_fchp_gui"] = _log(df["fchp_gui"])
     X["gui_at_cap"] = df["gui_at_cap"].astype(float)
+    # automatic corner method gmprocess used ("snr", or "snr_polyfit" = the polynomial
+    # method); analysts kept its value less often with snr_polyfit in the test events
+    X["method_polyfit"] = (df.get("corner_method_gmp", pd.Series("", index=df.index))
+                           .astype(str).str.contains("polyfit")).astype(float)
     X["ln_fclp_gmp"] = _log(df["fclp_gmp"])
     X["magnitude"] = _col(df, "ev_magnitude", "magnitude")
     X["depth_km"] = _col(df, "ev_hypocenter_depth", "event_depth_km")
