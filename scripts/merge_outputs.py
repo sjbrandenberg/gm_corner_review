@@ -22,6 +22,12 @@ def main(feat_dir):
     if not tr_files:
         sys.exit(f"no outputs in {feat / 'traces'}")
     traces = pd.concat((pd.read_parquet(f) for f in tr_files), ignore_index=True)
+    # A column can be typed differently in different files (e.g. bool in one, text or
+    # empty in another); make every non-numeric column text so parquet accepts it.
+    for c in traces.columns:
+        if traces[c].dtype == object:
+            traces[c] = traces[c].map(lambda v: None if v is None or (isinstance(v, float) and v != v)
+                                      else str(v))
     curves = pd.concat((pd.read_parquet(feat / "curves" / f.name) for f in tr_files
                         if (feat / "curves" / f.name).exists()), ignore_index=True)
     traces.to_parquet(feat / "traces_all.parquet", index=False)

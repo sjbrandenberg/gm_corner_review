@@ -157,7 +157,9 @@ def trace_features(ws, trace_id, compute_psa=True):
     rec["auto_failed"] = bool(fail)
     rec["auto_fail_module"] = fail.get("module")
     rec["auto_fail_reason"] = fail.get("reason")
-    rec["stream_any_failure"] = ws.stream_parameters(trace_id).get("any_trace_failures")
+    fail_any = ws.stream_parameters(trace_id).get("any_trace_failures")
+    # number, not bool/None: files must agree on the column type for the merged table
+    rec["stream_any_failure"] = np.nan if fail_any is None else float(bool(fail_any))
     rec["clipping_prob"] = (tp.get("clipping_probability") or {}).get("probability", np.nan)
     rec["zero_crossing_rate"] = (tp.get("ZeroCrossingRate") or {}).get("crossing_rate", np.nan)
     rec["noise_duration"] = (tp.get("noise_spectrum") or {}).get("duration", np.nan)
