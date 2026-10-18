@@ -195,9 +195,12 @@ globus transfer $DESIGNSAFE_COLLECTION $STAMPEDE3_COLLECTION \
     --batch $SCRATCH/gmcr_run/globus/b001.txt --label gmcr-b001 --verify-checksum
 # wait for the e-mail (or: globus task wait <task id>), then
 python tacc/inventory.py $SCRATCH/gm_stage/b001 --sample 20
-python tacc/make_tasks.py $SCRATCH/gm_stage/b001 $SCRATCH/gmcr_test --limit 20 --files-per-task 2 \
-    "--extra-args=--reviewed-only --stage-dir /tmp/gmcr_stage"
-sbatch -N 1 -t 00:30:00 --export=ALL,RUN_DIR=$SCRATCH/gmcr_test tacc/extract.slurm
+# the 20 smallest files, one per task (the default order is largest first)
+python tacc/make_tasks.py $SCRATCH/gm_stage/b001 $SCRATCH/gmcr_test --limit 20 --smallest-first \
+    --files-per-task 1 "--extra-args=--reviewed-only --stage-dir /tmp/gmcr_stage"
+sbatch -N 1 -t 01:00:00 --export=ALL,RUN_DIR=$SCRATCH/gmcr_test tacc/extract.slurm
+# if the job hits its time limit, merge what finished (fine on a login node):
+#   python scripts/merge_outputs.py $SCRATCH/gmcr_test/features
 # when it finishes:
 cat $SCRATCH/gmcr_test/features/summary.json
 head $SCRATCH/gmcr_test/features/errors.csv
