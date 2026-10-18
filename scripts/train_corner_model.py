@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gmcr import modeling as gm  # noqa: E402
 
 SIMPLE_FCHP = ["ln_fchp_gmp", "ln_fchp_gui", "gui_at_cap", "method_polyfit", "magnitude", "ln_rrup",
-               "accelerometer", "is_vertical", "ln_snr3_flo", "pre_ratio_at_gmp"]
+               "accelerometer", "is_vertical", "ln_snr2_flo", "pre_ratio_at_gmp"]
 SIMPLE_FCLP = ["ln_fclp_gmp", "magnitude", "ln_rrup", "accelerometer", "is_vertical",
                "ln_snr3_fhi", "psa_rough_short", "psa_max_bump_short"]
 
