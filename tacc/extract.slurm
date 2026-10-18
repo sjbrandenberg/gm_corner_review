@@ -29,14 +29,25 @@ LOCAL_ENV=/tmp/gmcr_env_$SLURM_JOB_ID
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 export HDF5_USE_FILE_LOCKING=FALSE
 
+USE_LOCAL=0
 if [ -f "$PACK" ]; then
-    # Unpack the env once per node onto local disk
-    srun --ntasks-per-node=1 bash -c "mkdir -p $LOCAL_ENV && tar -xzf $PACK -C $LOCAL_ENV && $LOCAL_ENV/bin/conda-unpack"
+    # Unpack the env exactly once per node onto local disk. The explicit node/task counts
+    # matter: without them srun inherits the job's 48 tasks per node and 48 tars collide.
+    # If unpacking fails, fall back to the env in $WORK instead of stopping the job.
+    if srun --nodes="$SLURM_NNODES" --ntasks="$SLURM_NNODES" --ntasks-per-node=1 \
+            bash -c "rm -rf $LOCAL_ENV && mkdir -p $LOCAL_ENV && tar -xzf $PACK -C $LOCAL_ENV && $LOCAL_ENV/bin/conda-unpack"; then
+        USE_LOCAL=1
+    else
+        echo "unpacking $PACK failed; using the env in $WORK" >&2
+    fi
+fi
+if [ "$USE_LOCAL" = 1 ]; then
     export PATH=$LOCAL_ENV/bin:$PATH
 else
     source "$CONDA_ROOT/etc/profile.d/conda.sh"
     conda activate gmcr
 fi
+echo "python: $(command -v python)"
 
 module load pylauncher
 cd "$RUN_DIR"
