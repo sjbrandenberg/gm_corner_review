@@ -297,6 +297,21 @@ cp $SCRATCH/gmcr_run/globus/manifest.csv $WORK/gmcr_results/
 
 ## Troubleshooting
 
+* **Jobs "CANCELLED by 0" after ~2:02 with no log files, or `Input/output error` on a
+  file in `$WORK`** (seen on 2026-10-18): compute nodes couldn't read/write `$WORK`
+  (Stockyard), starting with the job's own log files when the job is submitted from
+  `$WORK`. Run everything from `$SCRATCH` instead (and report it to TACC):
+  ```bash
+  mkdir -p $SCRATCH/gmcr_logs
+  rsync -a --delete $WORK/gm_corner_review/ $SCRATCH/gm_corner_review/   # after each git pull
+  cp $WORK/gmcr_env.tar.gz $SCRATCH/gmcr_env.tar.gz                      # after each repack
+  cd $SCRATCH/gm_corner_review
+  sbatch -o $SCRATCH/gmcr_logs/%x.%j.out -e $SCRATCH/gmcr_logs/%x.%j.err \
+      --export=ALL,FEATURES_DIR=$SCRATCH/gmcr_run/features,GMCR_REPO=$SCRATCH/gm_corner_review,GMCR_PACK=$SCRATCH/gmcr_env.tar.gz \
+      tacc/train.slurm
+  ```
+  The same `-o`/`-e`, `GMCR_REPO`, and `GMCR_PACK` settings work for `extract.slurm`.
+
 * **`module load pylauncher` fails or pylauncher can't be imported with the conda Python**:
   `conda activate gmcr && pip install pylauncher`, then resubmit.
 * **Jobs slow to start Python / file-system warnings from TACC**: make sure
