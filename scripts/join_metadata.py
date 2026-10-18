@@ -41,9 +41,26 @@ def _prefix(df, p, keep=()):
     return df.rename(columns={c: f"{p}{c}" for c in df.columns if c not in keep})
 
 
+def _one_per_key(df, key, name):
+    """Keep the first row per key (the database can return a key more than once, e.g. a
+    motion with several time-series versions); report what was dropped."""
+    key = [key] if isinstance(key, str) else list(key)
+    blank = df[key].isna().any(axis=1) | df[key].astype(str).apply(
+        lambda c: c.str.strip().isin(["", "None", "nan", "-999"])).any(axis=1)
+    if blank.any():
+        print(f"  {name}: {int(blank.sum())} rows without {key} ignored")
+        df = df[~blank]
+    dup = df.duplicated(key, keep="first")
+    if dup.any():
+        print(f"  {name}: {int(dup.sum())} duplicate rows for {int(df.loc[dup, key].drop_duplicates().shape[0])} "
+              f"keys {key} dropped (first row kept)")
+        df = df[~dup]
+    return df
+
+
 def event_table(db):
-    ev = pd.read_parquet(db / "events.parquet")
-    ff = pd.read_parquet(db / "finiteFaults.parquet")
+    ev = _one_per_key(pd.read_parquet(db / "events.parquet"), "comcat_id", "events")
+    ff = _one_per_key(pd.read_parquet(db / "finiteFaults.parquet"), "event_id", "finiteFaults")
     nseg = pd.read_parquet(db / "finiteFaultSegments.parquet")["finite_fault_id"].value_counts()
     ff["fault_nseg"] = ff["finite_fault_id"].map(nseg).fillna(0).astype(int)
     ev = ev.merge(ff, on="event_id", how="left")
@@ -104,8 +121,8 @@ def attach_distances(tr, db):
 
 
 def attach_flatfile(tr, db):
-    ff = pd.read_parquet(db / "flatfile_features.parquet")
-    lab = pd.read_parquet(db / "flatfile_labels.parquet")
+    ff = _one_per_key(pd.read_parquet(db / "flatfile_features.parquet"), "motion_id", "flatfile")
+    lab = _one_per_key(pd.read_parquet(db / "flatfile_labels.parquet"), "motion_id", "flatfile labels")
     analyst = (ff.groupby("comcat_id")["user_id"]
                .agg(lambda s: s.mode().iat[0] if s.notna().any() else np.nan)
                .rename("analyst_id").reset_index().rename(columns={"comcat_id": "event_id"}))
@@ -144,11 +161,17 @@ def main(feat_dir):
     db = feat / "db"
     tr = pd.read_parquet(feat / "traces_all.parquet")
     n0 = len(tr)
-    tr = tr.merge(event_table(db), on="event_id", how="left")
-    tr = attach_stations(tr, station_table(db))
-    tr = attach_distances(tr, db)
-    tr = attach_flatfile(tr, db)
-    assert len(tr) == n0, "join changed row count"
+    if tr["trace_key"].duplicated().any():
+        raise SystemExit(f"traces_all.parquet has {int(tr['trace_key'].duplicated().sum())} repeated "
+                         "trace_keys; rerun scripts/merge_outputs.py (mixed old and new outputs?)")
+    steps = [("events", lambda t: t.merge(event_table(db), on="event_id", how="left")),
+             ("stations", lambda t: attach_stations(t, station_table(db))),
+             ("distances", lambda t: attach_distances(t, db)),
+             ("flatfile", lambda t: attach_flatfile(t, db))]
+    for name, step in steps:
+        tr = step(tr)
+        if len(tr) != n0:
+            raise SystemExit(f"joining {name} changed the row count from {n0} to {len(tr)}")
 
     rev = tr["y_reviewed"] == 1
     acc, rej = rev & (tr["y_accepted"] == 1), rev & (tr["y_accepted"] == 0)
