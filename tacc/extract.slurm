@@ -18,6 +18,7 @@
 #   sbatch --export=ALL,RUN_DIR=$SCRATCH/gmcr_run,TASKS=$SCRATCH/gmcr_run/tasks_b001.txt tacc/extract.slurm
 
 set -euo pipefail
+export PYTHONUNBUFFERED=1   # write log lines as they happen
 RUN_DIR=${RUN_DIR:?set RUN_DIR}
 TASKS=${TASKS:-$RUN_DIR/tasks.txt}   # tasks_<batch>.txt for staged batches
 # repository root: GMCR_REPO, else the submit directory, else $WORK/gm_corner_review

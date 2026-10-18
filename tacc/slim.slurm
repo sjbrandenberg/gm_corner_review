@@ -13,6 +13,7 @@
 #   sbatch --export=ALL,RAW_DIR=$SCRATCH/gm_raw,DATA_DIR=$SCRATCH/gm_data tacc/slim.slurm
 
 set -euo pipefail
+export PYTHONUNBUFFERED=1   # write log lines as they happen
 RAW_DIR=${RAW_DIR:?set RAW_DIR}
 DATA_DIR=${DATA_DIR:?set DATA_DIR}
 CONDA_ROOT=${CONDA_ROOT:-$WORK/miniforge3}

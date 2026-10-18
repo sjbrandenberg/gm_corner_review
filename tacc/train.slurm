@@ -14,6 +14,7 @@
 #   sbatch --export=ALL,FEATURES_DIR=$SCRATCH/gmcr_run/features tacc/train.slurm
 
 set -euo pipefail
+export PYTHONUNBUFFERED=1   # write log lines as they happen
 FEATURES_DIR=${FEATURES_DIR:?set FEATURES_DIR}
 MODELS_DIR=${MODELS_DIR:-$FEATURES_DIR/../models}
 REPO=${GMCR_REPO:-$SLURM_SUBMIT_DIR}
