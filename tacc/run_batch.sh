@@ -47,6 +47,7 @@ fi
 python "$REPO/tacc/inventory.py" "$STAGE_ROOT/$B" --sample 20
 python "$REPO/tacc/make_tasks.py" "$STAGE_ROOT/$B" "$RUN_DIR" --batch "$B" \
     "--extra-args=--reviewed-only --stage-dir /tmp/gmcr_stage --delete-source"
-cd "$REPO"
-sbatch -N "$NODES" -J "gmcr_$B" \
-    --export=ALL,RUN_DIR="$RUN_DIR",TASKS="$RUN_DIR/tasks_$B.txt" tacc/extract.slurm
+# submit.sh copies code and env to $SCRATCH and runs the job from there (logs in
+# $SCRATCH/gmcr_logs/gmcr_<batch>.<jobid>.out)
+bash "$REPO/tacc/submit.sh" extract RUN_DIR="$RUN_DIR" TASKS="$RUN_DIR/tasks_$B.txt" \
+    -- -N "$NODES" -J "gmcr_$B"

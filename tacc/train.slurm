@@ -11,20 +11,22 @@
 # Train and compare the models on one node (LightGBM uses all cores).
 # Needs FEATURES_DIR/traces_joined.parquet: run scripts/fetch_flatfile.py on a login
 # node first (compute nodes have no internet); this job runs join_metadata.py.
-#   sbatch --export=ALL,FEATURES_DIR=$SCRATCH/gmcr_run/features tacc/train.slurm
+#   bash tacc/submit.sh train FEATURES_DIR=$SCRATCH/gmcr_run/features
 
 set -euo pipefail
 export PYTHONUNBUFFERED=1   # write log lines as they happen
 FEATURES_DIR=${FEATURES_DIR:?set FEATURES_DIR}
 MODELS_DIR=${MODELS_DIR:-$FEATURES_DIR/../models}
-REPO=${GMCR_REPO:-$SLURM_SUBMIT_DIR}
-[ -f "$REPO/scripts/train_corner_model.py" ] || REPO=$WORK/gm_corner_review
+# code and packed env: the $SCRATCH copies made by submit.sh; GMCR_REPO / GMCR_PACK override
+REPO=${GMCR_REPO:-$SCRATCH/gm_corner_review}
+[ -f "$REPO/scripts/train_corner_model.py" ] || REPO=$SLURM_SUBMIT_DIR
 CONDA_ROOT=${CONDA_ROOT:-$WORK/miniforge3}
-PACK=${GMCR_PACK:-$WORK/gmcr_env.tar.gz}
+PACK=${GMCR_PACK:-$SCRATCH/gmcr_env.tar.gz}
+[ -f "$PACK" ] || PACK=$WORK/gmcr_env.tar.gz
 LOCAL=/tmp/gmcr_train_$SLURM_JOB_ID
 
-# $WORK (Stockyard) has given I/O errors on compute nodes: copy the code and the packed
-# env to node-local disk once, retrying, and run from there.
+# Copy the code and the packed env to node-local disk once (retrying) and run from there
+# (they are on $SCRATCH; $WORK gave I/O errors on compute nodes, and TACC discourages it).
 retry() { for i in 1 2 3 4 5; do "$@" && return 0; echo "attempt $i failed: $*" >&2; sleep 30; done; return 1; }
 mkdir -p "$LOCAL"
 retry cp -r "$REPO/gmcr" "$REPO/scripts" "$LOCAL/"

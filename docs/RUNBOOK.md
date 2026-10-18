@@ -2,6 +2,17 @@
 
 Allocation: **BCS22014** (already set in `tacc/*.slurm`).
 
+**Jobs run entirely from `$SCRATCH`.** TACC asks that compute nodes not use `$WORK`
+(Stockyard) except to stage data before or after a job
+([Good Conduct Guide](https://docs.tacc.utexas.edu/basics/conduct/); the
+[Stampede3 guide](https://docs.tacc.utexas.edu/hpc/stampede3/): "Always run your jobs out
+of $SCRATCH"). Jobs submitted from `$WORK` failed here on 2026-10-18 with `Input/output
+error` or were "CANCELLED by 0" after 2:02 without logs. So the code and the conda env are
+*kept* in `$WORK`, and every job is submitted with **`bash tacc/submit.sh <job> ...`**, which
+on the login node copies the code and the packed env to `$SCRATCH` (only what changed) and
+submits from there, with logs in `$SCRATCH/gmcr_logs/<job name>.<job id>.out` and `.err`.
+Don't call `sbatch` on the `tacc/*.slurm` files directly.
+
 Stampede3 compute nodes cannot read Corral, so the HDF5 files are copied from the
 DesignSafe project to Stampede3 **in batches** with Globus. Each extraction task copies its
 file to the node's local `/tmp`, extracts it, then deletes the `/tmp` copy *and* the staged
@@ -198,7 +209,7 @@ python tacc/inventory.py $SCRATCH/gm_stage/b001 --sample 20
 # the 20 smallest files, one per task (the default order is largest first)
 python tacc/make_tasks.py $SCRATCH/gm_stage/b001 $SCRATCH/gmcr_test --limit 20 --smallest-first \
     --files-per-task 1 "--extra-args=--reviewed-only --stage-dir /tmp/gmcr_stage"
-sbatch -N 1 -t 01:00:00 --export=ALL,RUN_DIR=$SCRATCH/gmcr_test tacc/extract.slurm
+bash tacc/submit.sh extract RUN_DIR=$SCRATCH/gmcr_test -- -N 1 -t 01:00:00
 # if the job hits its time limit, merge what finished (fine on a login node):
 #   python scripts/merge_outputs.py $SCRATCH/gmcr_test/features
 # when it finishes:
@@ -210,7 +221,7 @@ Look at `summary.json`: `file_errors` and `trace_errors` should be 0 or close to
 `reviewed` > 0, `fchp_source` should show gmprocess / gui_auto / manual counts,
 `gmprocess_versions` / `review_usernames` should look right, and `staging` shows how fast
 files were copied to `/tmp`. If something fails, the per-file logs are in
-`features/logs/` and the job's output in `gmcr_extract.<jobid>.out`.
+`features/logs/` and the job's output in `$SCRATCH/gmcr_logs/gmcr_extract.<jobid>.out`.
 
 ## 2. Stage and extract, batch after batch
 
@@ -259,7 +270,7 @@ python scripts/fetch_flatfile.py $SCRATCH/gmcr_run/features --token-file ~/nga_t
 Then train on a compute node:
 
 ```bash
-sbatch --export=ALL,FEATURES_DIR=$SCRATCH/gmcr_run/features tacc/train.slurm
+bash tacc/submit.sh train FEATURES_DIR=$SCRATCH/gmcr_run/features
 ```
 
 The job runs `join_metadata.py` and five model comparisons; results go to
@@ -298,27 +309,19 @@ cp $SCRATCH/gmcr_run/globus/manifest.csv $WORK/gmcr_results/
 ## Troubleshooting
 
 * **Jobs "CANCELLED by 0" after ~2:02 with no log files, or `Input/output error` on a
-  file in `$WORK`** (seen on 2026-10-18): compute nodes couldn't read/write `$WORK`
-  (Stockyard), starting with the job's own log files when the job is submitted from
-  `$WORK`. Run everything from `$SCRATCH` instead (and report it to TACC):
-  ```bash
-  mkdir -p $SCRATCH/gmcr_logs
-  rsync -a --delete $WORK/gm_corner_review/ $SCRATCH/gm_corner_review/   # after each git pull
-  cp $WORK/gmcr_env.tar.gz $SCRATCH/gmcr_env.tar.gz                      # after each repack
-  cd $SCRATCH/gm_corner_review
-  sbatch -o $SCRATCH/gmcr_logs/%x.%j.out -e $SCRATCH/gmcr_logs/%x.%j.err \
-      --export=ALL,FEATURES_DIR=$SCRATCH/gmcr_run/features,GMCR_REPO=$SCRATCH/gm_corner_review,GMCR_PACK=$SCRATCH/gmcr_env.tar.gz \
-      tacc/train.slurm
-  ```
-  The same `-o`/`-e`, `GMCR_REPO`, and `GMCR_PACK` settings work for `extract.slurm`.
-
+  file in `$WORK`**: something in the job used `$WORK` from a compute node (e.g. it was
+  submitted with plain `sbatch` from `$WORK`). Submit with `tacc/submit.sh`. If it still
+  happens, report it to TACC with the job ids, nodes (`sacct -X -j <id> -o JobID,NodeList`),
+  and the error.
+* **Logs**: `ls -t $SCRATCH/gmcr_logs | head`; `tail -f $SCRATCH/gmcr_logs/<name>.<id>.out`
+  follows a running job (Python output is unbuffered).
 * **`module load pylauncher` fails or pylauncher can't be imported with the conda Python**:
   `conda activate gmcr && pip install pylauncher`, then resubmit.
 * **Jobs slow to start Python / file-system warnings from TACC**: make sure
   `$WORK/gmcr_env.tar.gz` exists (made by `setup_env.sh`); `extract.slurm` then unpacks
   the env to each node's `/tmp`.
-* **Out of memory**: use fewer tasks per node: `sbatch --ntasks-per-node 24 ...`
-  (in `run_batch.sh`, add it to the `sbatch` line).
+* **Out of memory**: use fewer tasks per node: `bash tacc/submit.sh extract ... -- --ntasks-per-node 24`
+  (in `run_batch.sh`, add `--ntasks-per-node 24` after the `--` of its `submit.sh` line).
 * **Globus transfer fails or stalls**: `globus task show $(cat $SCRATCH/gmcr_run/globus/<batch>.task)`;
   rerunning the same `globus transfer` command resumes (add `--sync-level checksum`).
 * **`globus transfer` rejects the batch file**: check the line format with

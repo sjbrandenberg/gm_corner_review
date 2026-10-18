@@ -28,6 +28,7 @@ scripts/fetch_flatfile.py  download database metadata for the extracted events
 scripts/join_metadata.py   attach event/site/flatfile metadata and computed distances
 tacc/setup_env.sh      Miniforge + conda env in $WORK, packed for node-local use
 tacc/make_tasks.py     pylauncher task list (chunks of files)
+tacc/submit.sh         submit any job so it runs from $SCRATCH (use this, not sbatch)
 tacc/extract.slurm     multi-node feature extraction
 tacc/globus_batches.py split the DesignSafe project into Globus transfer batches (login node)
 tacc/run_batch.sh      stage one batch with Globus, check it, submit its extraction

@@ -21,5 +21,5 @@ source "$CONDA_ROOT/etc/profile.d/conda.sh"
 conda activate gmcr
 export OMP_NUM_THREADS=1 HDF5_USE_FILE_LOCKING=FALSE
 
-python "${GMCR_REPO:-$WORK/gm_corner_review}/scripts/slim_workspace.py" "$RAW_DIR" "$DATA_DIR" --workers 32
-python "${GMCR_REPO:-$WORK/gm_corner_review}/tacc/inventory.py" "$DATA_DIR"
+python "${GMCR_REPO:-$SCRATCH/gm_corner_review}/scripts/slim_workspace.py" "$RAW_DIR" "$DATA_DIR" --workers 32
+python "${GMCR_REPO:-$SCRATCH/gm_corner_review}/tacc/inventory.py" "$DATA_DIR"

@@ -10,24 +10,24 @@
 ##SBATCH --mail-user=you@ucla.edu
 ##SBATCH --mail-type=end
 
-# Usage (from the repository root):
-#   python tacc/make_tasks.py $SCRATCH/gm_data $SCRATCH/gmcr_run
-#   sbatch --export=ALL,RUN_DIR=$SCRATCH/gmcr_run tacc/extract.slurm
+# Submit with tacc/submit.sh (runs everything from $SCRATCH, as TACC asks):
+#   python tacc/make_tasks.py $SCRATCH/gm_stage/b001 $SCRATCH/gmcr_run --batch b001 ...
+#   bash tacc/submit.sh extract RUN_DIR=$SCRATCH/gmcr_run TASKS=$SCRATCH/gmcr_run/tasks_b001.txt
 # Resubmitting is safe: re-run make_tasks.py first and finished files are skipped.
-# Staged batches (see docs/RUNBOOK.md):
-#   sbatch --export=ALL,RUN_DIR=$SCRATCH/gmcr_run,TASKS=$SCRATCH/gmcr_run/tasks_b001.txt tacc/extract.slurm
 
 set -euo pipefail
 export PYTHONUNBUFFERED=1   # write log lines as they happen
 RUN_DIR=${RUN_DIR:?set RUN_DIR}
 TASKS=${TASKS:-$RUN_DIR/tasks.txt}   # tasks_<batch>.txt for staged batches
-# repository root: GMCR_REPO, else the submit directory, else $WORK/gm_corner_review
-REPO=${GMCR_REPO:-$SLURM_SUBMIT_DIR}
-[ -f "$REPO/tacc/run_launcher.py" ] || REPO=$WORK/gm_corner_review
-[ -f "$REPO/tacc/run_launcher.py" ] || { echo "can't find gm_corner_review (set GMCR_REPO)" >&2; exit 1; }
+# code and packed env: the $SCRATCH copies made by submit.sh (compute nodes should not
+# use $WORK); GMCR_REPO / GMCR_PACK override
+REPO=${GMCR_REPO:-$SCRATCH/gm_corner_review}
+[ -f "$REPO/tacc/run_launcher.py" ] || REPO=$SLURM_SUBMIT_DIR
+[ -f "$REPO/tacc/run_launcher.py" ] || { echo "can't find gm_corner_review (submit with tacc/submit.sh)" >&2; exit 1; }
 echo "repo: $REPO"
 CONDA_ROOT=${CONDA_ROOT:-$WORK/miniforge3}
-PACK=${GMCR_PACK:-$WORK/gmcr_env.tar.gz}
+PACK=${GMCR_PACK:-$SCRATCH/gmcr_env.tar.gz}
+[ -f "$PACK" ] || PACK=$WORK/gmcr_env.tar.gz
 LOCAL_ENV=/tmp/gmcr_env_$SLURM_JOB_ID
 
 # One BLAS/FFT thread per task; otherwise 48 tasks x N threads oversubscribe the node
@@ -43,7 +43,7 @@ if [ -f "$PACK" ]; then
             bash -c "rm -rf $LOCAL_ENV && mkdir -p $LOCAL_ENV && tar -xzf $PACK -C $LOCAL_ENV && $LOCAL_ENV/bin/conda-unpack"; then
         USE_LOCAL=1
     else
-        echo "unpacking $PACK failed; using the env in $WORK" >&2
+        echo "unpacking $PACK failed; using the env in \$WORK (last resort; TACC discourages it)" >&2
     fi
 fi
 if [ "$USE_LOCAL" = 1 ]; then
