@@ -17,6 +17,7 @@ dependencies:
   - requests
   - matplotlib
   - conda-pack
+  - paramiko                    # needed by TACC pylauncher
   - pip
   - pip:
       # auto_fchp from 3.0.3 reproduces the review GUI's fchp exactly.
