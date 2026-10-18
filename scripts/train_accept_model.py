@@ -88,6 +88,7 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--curves", action="store_true")
     p.add_argument("--no-ml", action="store_true")
+    p.add_argument("--drop", default="", help="comma-separated predictors to leave out")
     p.add_argument("--min-gain", type=float, default=0.05)
     p.add_argument("--boot", type=int, default=1000)
     args = p.parse_args()
@@ -104,6 +105,10 @@ def main():
     X = gm.base_features(df, include_site=False)
     if args.curves:
         X = pd.concat([X, gm.curve_features(df)], axis=1)
+    dropped = [c for c in args.drop.split(",") if c]
+    if [c for c in dropped if c not in X]:
+        sys.exit(f"--drop: unknown predictors {[c for c in dropped if c not in X]}")
+    X = X.drop(columns=dropped)
     y = df["y"].to_numpy()
     groups = df["event_id"].to_numpy()
     n_events = len(np.unique(groups))
@@ -112,7 +117,7 @@ def main():
     if y.min() == y.max():
         sys.exit("all reviewed records have the same decision; nothing to learn")
     folds = gm.event_folds(groups, args.folds, args.seed)
-    feats = [f for f in SIMPLE_ACCEPT if X[f].notna().any()]
+    feats = [f for f in SIMPLE_ACCEPT if f in X and X[f].notna().any()]
 
     def simple():
         return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(),
@@ -137,7 +142,7 @@ def main():
             oof.loc[te, "simple"] = y[tr].mean()
 
     models = [m for m in ("baseline", "simple", "lightgbm") if oof[m].notna().any()]
-    report = {"n_traces": int(len(df)), "n_events": int(n_events), "folds": args.folds,
+    report = {"n_traces": int(len(df)), "n_events": int(n_events), "folds": args.folds, "dropped": dropped,
               "accept_rate": float(y.mean()), "metrics": {}, "operating_points": {}, "comparisons": {}}
     for m in models:
         report["metrics"][m] = gm.classification_metrics(y, oof[m])
@@ -157,8 +162,23 @@ def main():
         final["lightgbm"] = _lgbm_fit(LGBM_CLF, X, y, groups, args.seed)
         imp = pd.Series(final["lightgbm"].feature_importances_, index=X.columns)
         report["lightgbm_top_features"] = imp.sort_values(ascending=False).head(25).to_dict()
-    if "analyst_id" in df:
-        report["accept_rate_by_analyst"] = df.groupby("analyst_id")["y"].agg(["mean", "size"]).round(4).to_dict("index")
+        from train_corner_model import _importance  # noqa: E402
+        report["importance_lightgbm"] = _importance(final["lightgbm"], X.columns)
+    if "analyst_id" in df and df["analyst_id"].notna().any():
+        from sklearn.metrics import roc_auc_score
+        by = {}
+        a = pd.to_numeric(df["analyst_id"], errors="coerce").fillna(-1).to_numpy()
+        for aid in pd.unique(a):
+            sel = a == aid
+            row = {"n_traces": int(sel.sum()), "n_events": int(len(np.unique(groups[sel]))),
+                   "accept_rate": round(float(y[sel].mean()), 4)}
+            for m in models:
+                pm = np.clip(oof.loc[sel, m].to_numpy(dtype=float), 1e-6, 1 - 1e-6)
+                row[f"{m}_log_loss"] = round(float(np.mean(_logloss_rows(y[sel], pm))), 4)
+                row[f"{m}_auc"] = (round(float(roc_auc_score(y[sel], pm)), 4)
+                                   if 0 < y[sel].sum() < sel.sum() else None)
+            by[str(int(aid)) if aid != -1 else "unknown"] = row
+        report["by_analyst"] = by
     report["seconds"] = round(time.time() - t0, 1)
 
     import joblib
@@ -188,7 +208,8 @@ def main():
     plt.close(fig)
 
     lines = ["# accept/reject model comparison", "",
-             f"{len(df)} reviewed traces, {n_events} events, accept rate {y.mean():.3f}", "",
+             f"{len(df)} reviewed traces, {n_events} events, accept rate {y.mean():.3f}"
+             + (f"; without {', '.join(dropped)}" if dropped else ""), "",
              "| model | AUC | Brier | log loss |", "|---|---|---|---|"]
     for m in models:
         r = report["metrics"][m]
@@ -200,6 +221,19 @@ def main():
     lines += ["", "Comparisons (log loss difference, event bootstrap 95% CI):", ""]
     for k, v in report["comparisons"].items():
         lines.append(f"- {k}: {v['difference']:+.4f} [{v['ci95'][0]:+.4f}, {v['ci95'][1]:+.4f}]")
+    if report.get("by_analyst"):
+        show = [m for m in ("simple", "lightgbm") if m in models]
+        lines += ["", "By analyst (AUC / log loss):", "",
+                  "| analyst | events | traces | accept rate | " + " | ".join(show) + " |",
+                  "|---|---|---|---|" + "---|" * len(show)]
+        for aid, r in sorted(report["by_analyst"].items(), key=lambda kv: -kv[1]["n_traces"]):
+            cells = [(f"{r[m + '_auc']:.3f}" if r[m + "_auc"] is not None else "-") + f" / {r[m + '_log_loss']:.3f}"
+                     for m in show]
+            lines.append(f"| {aid} | {r['n_events']} | {r['n_traces']} | {r['accept_rate']:.3f} | "
+                         + " | ".join(cells) + " |")
+    if "importance_lightgbm" in report:
+        lines += ["", "Top LightGBM predictors (share of total gain):", ""]
+        lines += [f"- {k}: {100 * v:.1f}%" for k, v in list(report["importance_lightgbm"]["gain_share"].items())[:12]]
     lines += ["", f"Recommendation: **{report['recommendation']}**"]
     (out / "report.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))

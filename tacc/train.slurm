@@ -48,8 +48,21 @@ else
     echo "no $FEATURES_DIR/db: skipping join_metadata (models use HDF5 features only)"
 fi
 
-python "$REPO/scripts/train_corner_model.py" "$FEATURES_DIR" --target fchp --out "$MODELS_DIR/fchp"
-python "$REPO/scripts/train_corner_model.py" "$FEATURES_DIR" --target fchp --curves --out "$MODELS_DIR/fchp_curves"
-python "$REPO/scripts/train_corner_model.py" "$FEATURES_DIR" --target fclp --out "$MODELS_DIR/fclp"
-python "$REPO/scripts/train_accept_model.py" "$FEATURES_DIR" --out "$MODELS_DIR/accept"
-python "$REPO/scripts/train_accept_model.py" "$FEATURES_DIR" --curves --out "$MODELS_DIR/accept_curves"
+# Each comparison also runs without the event-level predictors (magnitude, depth), which
+# can stand in for the analyst (events were divided among analysts): *_noevent folders.
+EVENT=magnitude,depth_km
+TC="$REPO/scripts/train_corner_model.py"
+TA="$REPO/scripts/train_accept_model.py"
+python "$TC" "$FEATURES_DIR" --target fchp --out "$MODELS_DIR/fchp"
+python "$TC" "$FEATURES_DIR" --target fchp --drop $EVENT --out "$MODELS_DIR/fchp_noevent"
+python "$TC" "$FEATURES_DIR" --target fchp --curves --out "$MODELS_DIR/fchp_curves"
+python "$TC" "$FEATURES_DIR" --target fchp --curves --drop $EVENT --out "$MODELS_DIR/fchp_curves_noevent"
+python "$TC" "$FEATURES_DIR" --target fclp --out "$MODELS_DIR/fclp"
+python "$TC" "$FEATURES_DIR" --target fclp --drop $EVENT --out "$MODELS_DIR/fclp_noevent"
+python "$TA" "$FEATURES_DIR" --out "$MODELS_DIR/accept"
+python "$TA" "$FEATURES_DIR" --drop $EVENT --out "$MODELS_DIR/accept_noevent"
+python "$TA" "$FEATURES_DIR" --curves --out "$MODELS_DIR/accept_curves"
+python "$TA" "$FEATURES_DIR" --curves --drop $EVENT --out "$MODELS_DIR/accept_curves_noevent"
+
+# one-page summary of all comparisons
+python "$REPO/scripts/summarize_models.py" "$MODELS_DIR" | tee "$MODELS_DIR/summary.md"
