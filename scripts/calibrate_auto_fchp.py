@@ -5,8 +5,8 @@
         [--jobs N]
 
 Needs only the feature tables (traces_joined.parquet or traces_all.parquet, and curves_all.parquet), no
-waveforms: about 6 minutes on one core with the existing curves, and about 6 minutes per curve family
-per core with the --fchp-variants curves (20 families).
+waveforms. With the default grid, about 20 minutes per curve family on one core of a compute node
+(longer on a shared login node: use idev); --jobs searches families in parallel.
 
 auto_fchp picks the lowest corner at which the polynomial-fit ratio of the filtered displacement,
 max|fit| / max|disp|, falls to a target (objective 1), then raises it, if needed, until the ratio of the
@@ -97,18 +97,26 @@ def solve_grid(R, lng, target, low, high):
     return np.where(np.isfinite(Rl) & np.isfinite(Rh), out, np.nan)
 
 
-def auto_on_grid(P, Q, lng, t_poly, t_pre, cap):
-    """auto_fchp from the polynomial-ratio curves P and pre-event ratio curves Q (objective 2 is skipped
-    when t_pre is None or the record has no pre-event curve)."""
+def _objective1(P, lng, t_poly, cap):
     n = len(P)
-    low = np.full(n, np.exp(lng[0]))
-    high = np.full(n, float(cap))
-    f1 = solve_grid(P, lng, t_poly, low, high)
+    return solve_grid(P, lng, t_poly, np.full(n, np.exp(lng[0])), np.full(n, float(cap)))
+
+
+def _objective2(Q, lng, f1, t_pre, cap):
+    """Raise the objective-1 corners f1 until the pre-event ratio Q falls to t_pre (rows without a
+    pre-event curve keep f1)."""
     if t_pre is None:
         return f1
     has_pre = np.isfinite(Q).all(axis=1)
-    f2 = solve_grid(np.where(has_pre[:, None], Q, 0.0), lng, t_pre, np.where(np.isfinite(f1), f1, low), high)
+    low = np.where(np.isfinite(f1), f1, np.exp(lng[0]))
+    f2 = solve_grid(np.where(has_pre[:, None], Q, 0.0), lng, t_pre, low, np.full(len(Q), float(cap)))
     return np.where(has_pre, f2, f1)
+
+
+def auto_on_grid(P, Q, lng, t_poly, t_pre, cap):
+    """auto_fchp from the polynomial-ratio curves P and pre-event ratio curves Q (objective 2 is skipped
+    when t_pre is None or the record has no pre-event curve)."""
+    return _objective2(Q, lng, _objective1(P, lng, t_poly, cap), t_pre, cap)
 
 
 # ------------------------------------------------------------------------------ calibration
@@ -145,15 +153,22 @@ def _calibrate_family(fam, P, Q, y, ln_gmp, folds, grids, lng):
     the sums for the recalibration."""
     nf = folds.max() + 1
     rows = []
-    for t_poly, t_pre, cap in itertools.product(*grids):
-        lnp = np.log(auto_on_grid(P, Q, lng, t_poly, t_pre, cap))
-        rec = {"family": fam, "t_poly": t_poly, "t_pre": t_pre, "cap": cap}
-        for name, pred in (("auto", lnp), ("gmp_max", np.maximum(ln_gmp, lnp))):
-            rec[name] = np.bincount(folds, (y - pred) ** 2, nf)
-        rec["recal"] = np.vstack([np.bincount(folds, w, nf) for w in
-                                  (np.ones_like(y), lnp, y, lnp**2, lnp * y, y**2)])
-        rows.append(rec)
+    grid_t_poly, grid_t_pre, grid_cap = grids
+    for t_poly, cap in itertools.product(grid_t_poly, grid_cap):
+        f1 = _objective1(P, lng, t_poly, cap)  # shared by every pre-event target
+        for t_pre in grid_t_pre:
+            rows.append(_combination_stats(fam, t_poly, t_pre, cap, np.log(_objective2(Q, lng, f1, t_pre, cap)),
+                                           y, ln_gmp, folds, nf))
     return rows
+
+
+def _combination_stats(fam, t_poly, t_pre, cap, lnp, y, ln_gmp, folds, nf):
+    rec = {"family": fam, "t_poly": t_poly, "t_pre": t_pre, "cap": cap}
+    for name, pred in (("auto", lnp), ("gmp_max", np.maximum(ln_gmp, lnp))):
+        rec[name] = np.bincount(folds, (y - pred) ** 2, nf)
+    rec["recal"] = np.vstack([np.bincount(folds, w, nf) for w in
+                              (np.ones_like(y), lnp, y, lnp**2, lnp * y, y**2)])
+    return rec
 
 
 def calibrate(df, families, grid_t_poly, grid_t_pre, grid_cap, folds, lng, jobs=1):
@@ -207,6 +222,17 @@ def predict(df, params, model, lng):
 
 
 # -------------------------------------------------------------------------------------- main
+
+
+def _grid_edges(params, grid_t_poly, grid_t_pre, grid_cap):
+    """Parameters selected at the edge of their search range (the optimum may lie beyond it)."""
+    pre = [t for t in grid_t_pre if t is not None]
+    edges = []
+    for name, value, grid in (("t_poly", params["t_poly"], grid_t_poly), ("cap", params["cap"], grid_cap),
+                              ("t_pre", params["t_pre"], pre)):
+        if value is not None and len(grid) > 1 and value in (min(grid), max(grid)):
+            edges.append(f"{name} {'min' if value == min(grid) else 'max'}")
+    return edges
 
 
 def _fmt(v):
@@ -298,7 +324,8 @@ def main():
             per_fold.append(params)
         full, sse = select(rows, model)
         report["selected"][model] = {"all_data": full, "all_data_rmse_ln": float(np.sqrt(sse / len(df))),
-                                     "per_fold": per_fold}
+                                     "per_fold": per_fold,
+                                     "at_grid_edge": _grid_edges(full, grid_t_poly, grid_t_pre, grid_cap)}
     # Fraction of auto corners at the bottom of the grid (true value may be lower)
     p_auto = predict(df, report["selected"]["auto"]["all_data"], "auto", lng)
     report["fraction_auto_at_grid_floor"] = float(np.mean(np.isclose(p_auto, lng[0])))
@@ -341,8 +368,10 @@ def main():
     for m in MODELS:
         s = report["selected"][m]["all_data"]
         extra = f", a = {s['a']:.3f}, b = {s['b']:.3f}" if m == "auto_recal" else ""
+        edge = report["selected"][m]["at_grid_edge"]
+        warn = f" **at the edge of the search range: {', '.join(edge)}; widen --t-poly/--t-pre/--cap**" if edge else ""
         lines.append(f"* {m}: {s['family']}, target {_fmt(s['t_poly'])}, pre-event target {_fmt(s['t_pre'])}, "
-                     f"fchp_max {_fmt(s['cap'])} Hz{extra}")
+                     f"fchp_max {_fmt(s['cap'])} Hz{extra}{warn}")
     lines += ["", "RMSE differences (95% event-bootstrap interval):", ""]
     for k, v in report["comparisons"].items():
         lines.append(f"* {k}: {v['difference']:+.3f} [{v['ci95'][0]:+.3f}, {v['ci95'][1]:+.3f}]")
