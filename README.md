@@ -16,6 +16,7 @@ human-reviewed gmprocess workspaces (NGA-West3 review GUI v6.2).
 gmcr/asdf_reader.py    read-only h5py access to workspace files (no gmprocess needed)
 gmcr/gui_replica.py    the review GUI's signal handling + its automatic fchp (verified exact)
 gmcr/features.py       per-trace scalars and fixed-grid curves
+gmcr/fchp_variants.py  polynomial-fit ratio curves for other orders and event-tied fit windows (--fchp-variants)
 gmcr/extract.py        CLI: workspace .h5 -> parquet (resumable; optional copy to node-local
                        /tmp and deletion of the staged source after extraction)
 gmcr/slim.py           copy only what gmcr reads from a workspace
@@ -38,6 +39,7 @@ tacc/train.slurm       join metadata + train all models on one node
 gmcr/modeling.py       datasets, leakage-safe features, event-grouped CV, metrics, log-linear/Tobit model
 scripts/train_corner_model.py   fchp / fclp: baselines vs simple vs LightGBM
 scripts/train_accept_model.py   accept/reject: constant vs logistic vs LightGBM
+scripts/calibrate_auto_fchp.py  calibrate auto_fchp's targets, fchp_max, order, and fit window on the analysts' fchp
 ```
 
 ## Outputs
@@ -117,6 +119,29 @@ to a median of 15 m (max 0.17 km). Rx/Ry0 use GC2 per NGA sub-rupture
 (`seg_sub_rupture_number`), each site taking the sub-rupture with the smallest
 Rrup; over all 21 multi-segment faults plus two single-segment events the median
 errors are 0.27 km (Rx), 0.15 km (U), and 0.12 km (Ry0).
+
+## Calibrating auto_fchp
+
+`scripts/calibrate_auto_fchp.py` asks how close the auto_fchp algorithm itself can get to the analysts'
+fchp once its parameters are calibrated, scored like the models above (out-of-fold, event-grouped CV,
+RMSE of ln fchp, tau/phi). It evaluates auto_fchp from the stored `poly_ratio_*` and `pre_disp_ratio_*`
+curves (the GUI's two criteria on the 25 trial corners), so it needs only the feature tables, no
+waveforms: about 6 minutes on one core.
+
+```bash
+python scripts/calibrate_auto_fchp.py $FEATURES_DIR --out models/auto_fchp     --compare-oof models/fchp/oof_predictions.parquet
+```
+
+It compares `auto` (calibrated targets and fchp_max), `auto_recal` (a + b ln auto), and `gmp_max`
+(max of the gmprocess corner and auto, i.e. auto_fchp only raises the gmprocess value) with the
+gmprocess and GUI baselines and, with `--compare-oof`, the trained simple and LightGBM models on the
+same traces (event-bootstrap RMSE differences). `gui_grid` reproduces the GUI's settings from the curves,
+to check the grid interpolation (median 0.8% from the GUI's value on nc73819746).
+
+Other polynomial orders and fit windows tied to the event ([t5 - k D5-95, t95 + k D5-95]) need the
+waveforms: extract with `--fchp-variants` (adds 20 curve families, about 0.2 s/trace), e.g. with
+`--extra-args='--reviewed-only --no-psa --fchp-variants'` in `tacc/make_tasks.py`, merge, and pass the
+folder with `--variants-dir` (use `--jobs` to search the families in parallel).
 
 ## Notes
 

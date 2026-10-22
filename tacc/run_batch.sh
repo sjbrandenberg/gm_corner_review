@@ -16,6 +16,8 @@
 #   RUN_DIR=$SCRATCH/gmcr_run      outputs; globus/ batch files are in $RUN_DIR/globus
 #   NODES=1                        nodes for the extraction job
 #   SKIP_TRANSFER=1                if the batch is already staged
+#   EXTRACT_ARGS='--reviewed-only --stage-dir /tmp/gmcr_stage --delete-source'
+#                                  flags for gmcr.extract (e.g. add --no-psa --fchp-variants)
 
 set -euo pipefail
 B=${1:?usage: run_batch.sh <batch, e.g. b001>}
@@ -23,6 +25,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 STAGE_ROOT=${STAGE_ROOT:-$SCRATCH/gm_stage}
 RUN_DIR=${RUN_DIR:-$SCRATCH/gmcr_run}
 NODES=${NODES:-1}
+EXTRACT_ARGS=${EXTRACT_ARGS:---reviewed-only --stage-dir /tmp/gmcr_stage --delete-source}
 BATCH_FILE=$RUN_DIR/globus/$B.txt
 [ -f "$BATCH_FILE" ] || { echo "no $BATCH_FILE: run tacc/globus_batches.py first"; exit 1; }
 
@@ -46,7 +49,7 @@ fi
 
 python "$REPO/tacc/inventory.py" "$STAGE_ROOT/$B" --sample 20
 python "$REPO/tacc/make_tasks.py" "$STAGE_ROOT/$B" "$RUN_DIR" --batch "$B" \
-    "--extra-args=--reviewed-only --stage-dir /tmp/gmcr_stage --delete-source"
+    "--extra-args=$EXTRACT_ARGS"
 # submit.sh copies code and env to $SCRATCH and runs the job from there (logs in
 # $SCRATCH/gmcr_logs/gmcr_<batch>.<jobid>.out)
 bash "$REPO/tacc/submit.sh" extract RUN_DIR="$RUN_DIR" TASKS="$RUN_DIR/tasks_$B.txt" \

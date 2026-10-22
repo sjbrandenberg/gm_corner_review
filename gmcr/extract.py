@@ -2,6 +2,7 @@
 
 Usage:
     python -m gmcr.extract FILE.h5 [FILE2.h5 ...] --out OUTDIR [--reviewed-only] [--no-psa]
+                           [--fchp-variants]
                            [--stage-dir /tmp --stage-mode slim|copy]
 
 For each input file writes
@@ -23,6 +24,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from . import fchp_variants as fv
 from . import features as ft
 from .asdf_reader import Workspace
 
@@ -32,9 +34,11 @@ CURVE_LENGTHS = {
 }
 
 
-def _curve_row(key, curves, psa_len):
+def _curve_row(key, curves, psa_len, fchp_variants=False):
     row = {"trace_key": key}
     lengths = dict(CURVE_LENGTHS, psa_gmp=psa_len)
+    if fchp_variants:
+        lengths.update({name: len(ft.FCHP_GRID) for name in fv.NAMES})
     for name, n in lengths.items():
         vals = curves.get(name)
         if vals is None or len(vals) != n:
@@ -73,14 +77,16 @@ def _delete_source(path):
 
 
 def process_file(path, outdir, reviewed_only=False, compute_psa=True, label=None,
-                 stage_dir=None, stage_mode="slim", delete_source=False):
+                 stage_dir=None, stage_mode="slim", delete_source=False, fchp_variants=False):
     """Extract one workspace file. With stage_dir (e.g. node-local /tmp), the file is
     first copied there (whole, or only the parts gmcr reads with stage_mode="slim"),
     read from the copy, and the copy is deleted afterwards, also on errors.
 
     delete_source=True deletes the input file itself once its outputs are written and
     every trace was extracted without error (for staged batches; never use it on the
-    only copy of the data). Files with errors are kept for a rerun."""
+    only copy of the data). Files with errors are kept for a rerun.
+
+    fchp_variants=True adds the auto_fchp calibration curves (gmcr.fchp_variants)."""
     path = Path(path)
     outdir = Path(outdir)
     # an event can have several workspace files, so prefix the ComCat-ID directory
@@ -115,7 +121,8 @@ def process_file(path, outdir, reviewed_only=False, compute_psa=True, label=None
                 log["n_traces"] += 1
                 key = f"{ws.event_id}|{tid}|{stem}"  # stem = <event folder>__<file stem>
                 try:
-                    rec, curves = ft.trace_features(ws, tid, compute_psa=compute_psa)
+                    rec, curves = ft.trace_features(ws, tid, compute_psa=compute_psa,
+                                                    fchp_variants=fchp_variants)
                     log["n_ok"] += 1
                 except Exception:
                     rec, curves = {"event_id": ws.event_id, "trace_id": tid}, {}
@@ -123,7 +130,7 @@ def process_file(path, outdir, reviewed_only=False, compute_psa=True, label=None
                     log["errors"][tid] = rec["error"]
                 rec["trace_key"] = key
                 rows.append(rec)
-                crows.append(_curve_row(key, curves, psa_len))
+                crows.append(_curve_row(key, curves, psa_len, fchp_variants))
     except Exception:
         log["file_error"] = traceback.format_exc()
     finally:
@@ -171,6 +178,9 @@ def main(argv=None):
                         "delete the copy afterwards")
     p.add_argument("--stage-mode", choices=["slim", "copy"], default="slim",
                    help="slim: copy only what gmcr reads (default); copy: the whole file")
+    p.add_argument("--fchp-variants", action="store_true",
+                   help="add polynomial-fit ratio curves for other orders and fit windows "
+                        "(for scripts/calibrate_auto_fchp.py)")
     p.add_argument("--delete-source", action="store_true",
                    help="delete each input file after it is extracted without errors "
                         "(for staged copies only)")
@@ -186,7 +196,7 @@ def main(argv=None):
             print(f"missing  {fn}", flush=True)
             continue
         s = process_file(fn, a.out, a.reviewed_only, not a.no_psa, a.label,
-                         a.stage_dir, a.stage_mode, a.delete_source)
+                         a.stage_dir, a.stage_mode, a.delete_source, a.fchp_variants)
         status[s] = status.get(s, 0) + 1
         print(f"{s:8s} {fn}", flush=True)
     print(status)

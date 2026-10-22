@@ -304,7 +304,88 @@ cp $SCRATCH/gmcr_run/features/{traces_joined.parquet,summary.json,errors.csv,gri
 cp $SCRATCH/gmcr_run/globus/manifest.csv $WORK/gmcr_results/
 ```
 
-`curves_all.parquet` (~1 GB) is needed only to retrain with `--curves`.
+`curves_all.parquet` (~1 GB) is needed to retrain with `--curves` and to calibrate auto_fchp
+(section 5); copy it too if you may do either.
+
+## 5. Calibrating auto_fchp
+
+`scripts/calibrate_auto_fchp.py` scores a calibrated auto_fchp against the analysts' fchp the same
+way as the trained models (out-of-fold, event-grouped CV). It reads only the feature tables, so it
+runs anywhere with about 8 GB of memory: a DesignSafe JupyterHub session, a laptop, or a Stampede3 login
+or compute node. About 6 minutes on one core.
+
+### 5.1 Files
+
+From the extraction and training run (`$SCRATCH/gmcr_run`, or `$WORK/gmcr_results` for what
+section 4 copied):
+
+| file | needed | notes |
+|---|---|---|
+| `features/traces_joined.parquet` | yes | `traces_all.parquet` also works (no database metadata needed) |
+| `features/curves_all.parquet` | yes | ~1 GB; not in the section 4 copy, so take it from `$SCRATCH` before it is purged |
+| `models/fchp/oof_predictions.parquet` | for `--compare-oof` | head-to-head comparison with the simple and LightGBM models |
+| `features/grids.json` | no | records the trial-fchp grid (features.FCHP_GRID) |
+
+Keep them in one folder per role, e.g. on a DesignSafe project with Globus (Stampede3 collection to
+the DesignSafe collection, the reverse of the staging transfers):
+
+```
+gmcr_results/features/traces_joined.parquet
+gmcr_results/features/curves_all.parquet
+gmcr_results/models/fchp/oof_predictions.parquet
+```
+
+### 5.2 Run
+
+```bash
+git clone https://github.com/sjbrandenberg/gm_corner_review.git
+cd gm_corner_review
+pip install --user numpy scipy pandas pyarrow ucla_geotech_tools   # not in the gmcr env (see below)
+R=/path/to/gmcr_results        # e.g. ~/MyProjects/PRJ-XXXX/gmcr_results on DesignSafe JupyterHub
+python scripts/calibrate_auto_fchp.py $R/features --out $R/models/auto_fchp     --compare-oof $R/models/fchp/oof_predictions.parquet
+```
+
+The `pip install` is for a Python without the gmcr env, such as DesignSafe JupyterHub; any
+ucla_geotech_tools version works for the calibration. On Stampede3, activate the gmcr env instead
+(`gmcr`) and skip the `pip install`: it would upgrade ucla_geotech_tools, and the extraction needs
+3.0.3 to reproduce the GUI. The script imports gmcr from the cloned folder, so after a `git pull` it
+runs without rebuilding the env.
+
+### 5.3 Outputs (in `--out`)
+
+* `report.md`: RMSE, mean and sd of the residuals, tau, phi, and fraction within a factor of 1.5 for
+  the baselines, `gui_grid`, `auto`, `auto_recal`, `gmp_max`, and the trained models; the selected
+  parameters; and event-bootstrap 95% intervals of the RMSE differences (negative favors the first
+  model). Check first that `gui_grid` is close to the GUI's value (median |ln ratio| near 0.01).
+* `report.json`: the same, plus the parameters selected in each fold (their spread shows how well
+  determined they are).
+* `oof_predictions.parquet`: out-of-fold ln(fchp) of every model, keyed by `trace_key`.
+* `calibration_grid.parquet`: full-data RMSE of every parameter combination, for plotting the
+  RMSE against the targets and fchp_max.
+
+### 5.4 Optional: other polynomial orders and fit windows (needs the HDF5 files again)
+
+The curves for other orders and event-tied windows come from the waveforms, so the workspace files
+must be staged and extracted again (section 2), into a new run folder so finished files are not
+skipped, and without PSA:
+
+```bash
+RUN_DIR=$SCRATCH/gmcr_variants EXTRACT_ARGS='--reviewed-only --no-psa --fchp-variants --stage-dir /tmp/gmcr_stage --delete-source'     bash tacc/run_batch.sh b001        # and so on for each batch
+python scripts/merge_outputs.py $SCRATCH/gmcr_variants/features
+```
+
+Extraction jobs run the gmcr installed in the packed env, so rerun `bash tacc/setup_env.sh` (section
+0.1) after pulling this code, or `--fchp-variants` is not recognized.
+
+This adds about 0.2 s per trace to the extraction. Then pass the new curves to the calibration;
+searching the 20 extra curve families takes about 6 minutes per family per core, so use `--jobs`
+(on a compute node, or a JupyterHub session with several cores):
+
+```bash
+python scripts/calibrate_auto_fchp.py $R/features --variants-dir $SCRATCH/gmcr_variants/features     --out $R/models/auto_fchp_variants --compare-oof $R/models/fchp/oof_predictions.parquet --jobs 21
+```
+
+Each process holds one family's curves (~25 MB) plus the shared arrays.
 
 ## Troubleshooting
 

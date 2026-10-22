@@ -11,6 +11,7 @@ appear only in columns prefixed `y_`.
 
 import numpy as np
 
+from . import fchp_variants as fv
 from . import gui_replica as gr
 
 # Common grids ---------------------------------------------------------------
@@ -100,8 +101,11 @@ def psa_shape_metrics(T, psa, pga):
     return out
 
 
-def trace_features(ws, trace_id, compute_psa=True):
-    """Return (scalars, curves) for one processed trace in workspace `ws`."""
+def trace_features(ws, trace_id, compute_psa=True, fchp_variants=False):
+    """Return (scalars, curves) for one processed trace in workspace `ws`.
+
+    fchp_variants=True adds the polynomial-fit ratio curves for other orders and fit windows
+    (gmcr.fchp_variants), for calibrating auto_fchp."""
     import obspy
     from obspy.geodetics import gps2dist_azimuth
 
@@ -226,6 +230,10 @@ def trace_features(ws, trace_id, compute_psa=True):
     curves["pre_disp_ratio"] = pre[:len(FCHP_GRID)].astype(np.float32)
     rec["poly_ratio_at_gmp"], rec["poly_ratio_at_gui"] = poly[-2], poly[-1]
     rec["pre_ratio_at_gmp"], rec["pre_ratio_at_gui"] = pre[-2], pre[-1]
+    if fchp_variants:
+        vcurves, vscalars = fv.poly_ratio_variants(acc_u, dt, FCHP_GRID)
+        curves.update({k: v.astype(np.float32) for k, v in vcurves.items()})
+        rec.update(vscalars)
 
     # Which automatic value did the analyst adopt?
     if rec["y_reviewed"] == 1 and np.isfinite(rec["y_fchp"]):

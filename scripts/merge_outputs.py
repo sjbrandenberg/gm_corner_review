@@ -14,6 +14,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gmcr import features as ft  # noqa: E402
+from gmcr import fchp_variants as fv  # noqa: E402
 
 
 def main(feat_dir):
@@ -36,6 +37,8 @@ def main(feat_dir):
         "snr": ft.FREQ_GRID.tolist(), "fas_signal": ft.FREQ_GRID.tolist(),
         "fas_noise": ft.FREQ_GRID.tolist(), "poly_ratio": ft.FCHP_GRID.tolist(),
         "pre_disp_ratio": ft.FCHP_GRID.tolist(), "psa_gmp": ft.NGAW2_T.tolist(),
+        **{name: ft.FCHP_GRID.tolist() for name in fv.NAMES
+           if f"{name}_000" in curves.columns},
     }, indent=1))
 
     logs = [json.loads(p.read_text()) for p in (feat / "logs").glob("*.json")]
