@@ -292,6 +292,21 @@ zero; change with `--min-gain`).
 Remember when reading the accept/reject report: analysts only reviewed records that passed
 the automatic checks, so it can only tell you how to make the criteria stricter.
 
+### Applying a model to new records
+
+`scripts/predict.py` applies the model a run recommends (its `report.json`), or another one with
+`--model`, to new records, either from workspace files or from extracted features:
+
+```bash
+python scripts/predict.py $SCRATCH/gmcr_run/models/fchp --workspaces /path/to/<comcatid>/*.h5 --out fchp_pred.csv
+python scripts/predict.py $SCRATCH/gmcr_run/models/accept --features $SCRATCH/new_run/features     --flag-share 80 --out accept_pred.csv
+```
+
+It also takes an `auto_fchp` calibration folder (calibrate_auto_fchp.py output); calibrations that
+chose a `polyvar_*` curve family need `--fchp-variants` with `--workspaces`. For the best
+predictions, give it features that went through `join_metadata.py` (finite-fault distances, site
+data), as the training data did; otherwise those predictors are missing and the script says so.
+
 ## 4. Keep the results
 
 `$SCRATCH` is purged. Copy the outputs to `$WORK`, and anything worth keeping long-term to

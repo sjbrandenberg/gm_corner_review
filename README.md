@@ -39,6 +39,7 @@ tacc/train.slurm       join metadata + train all models on one node
 gmcr/modeling.py       datasets, leakage-safe features, event-grouped CV, metrics, log-linear/Tobit model
 scripts/train_corner_model.py   fchp / fclp: baselines vs simple vs LightGBM
 scripts/train_accept_model.py   accept/reject: constant vs logistic vs LightGBM
+scripts/predict.py              apply a trained model (or calibrated auto_fchp) to new records
 scripts/calibrate_auto_fchp.py  calibrate auto_fchp's targets, fchp_max, order, and fit window on the analysts' fchp
 ```
 
