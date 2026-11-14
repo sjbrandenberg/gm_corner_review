@@ -7,11 +7,12 @@ The demo models are trained on SYNTHETIC analyst labels: the sample event
 made-up analyst decisions. They only show how predict.py works. Their predictions mean
 nothing; use the model folders from the real training runs on Stampede3 for real work.
 
-They are built on your machine (a few seconds, simple models only) rather than shipped,
-because model files saved with one version of scikit-learn may not load with another.
+They are built on your machine (a few seconds, simple models only), so that the repository
+holds no fake models next to the real ones in gmcr/trained/.
 
-Writes demo_models/fchp and demo_models/accept next to this script, in the same layout as
-the outputs of train_corner_model.py and train_accept_model.py.
+Writes demo_models/fchp and demo_models/accept next to this script, exported in the same
+version-independent format as the models bundled with the package (gmcr.portable), so the
+example uses them exactly as it uses bundled models.
 """
 
 import subprocess
@@ -59,19 +60,29 @@ def synthetic_training_set(src, dst, n_events=60, seed=0):
     pd.concat(C).to_parquet(dst / "curves_all.parquet", index=False)
 
 
+DEMO_NOTE = "DEMO model trained on synthetic labels (make_demo_models.py): its predictions mean nothing"
+
+
 def main():
+    sys.path.insert(0, str(REPO))
+    from gmcr import portable
+
     out = HERE / "demo_models"
     with tempfile.TemporaryDirectory() as tmp:
-        synthetic_training_set(HERE / "sample_features", Path(tmp))
+        data = Path(tmp) / "data"
+        data.mkdir()
+        synthetic_training_set(HERE / "sample_features", data)
         for script, extra, name in (("train_corner_model.py", ["--target", "fchp"], "fchp"),
                                     ("train_accept_model.py", [], "accept")):
-            cmd = [sys.executable, str(REPO / "scripts" / script), tmp, *extra,
-                   "--no-ml", "--boot", "100", "--out", str(out / name)]
+            trained = Path(tmp) / name
+            cmd = [sys.executable, str(REPO / "scripts" / script), str(data), *extra,
+                   "--no-ml", "--boot", "100", "--out", str(trained)]
             print("building demo model:", name, flush=True)
             r = subprocess.run(cmd, capture_output=True, text=True)
             if r.returncode:
                 print(r.stdout[-2000:], r.stderr[-3000:])
                 sys.exit(f"building the {name} demo model failed (see above)")
+            portable.export_model_dir(trained, out / name, note=DEMO_NOTE)
     (out / "README.txt").write_text(
         "DEMO models trained on synthetic labels (make_demo_models.py). Their predictions\n"
         "mean nothing; they only show how predict.py works.\n")
