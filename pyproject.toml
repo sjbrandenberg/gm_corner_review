@@ -16,3 +16,7 @@ ml = ["lightgbm"]
 
 [tool.setuptools]
 packages = ["gmcr"]
+
+[tool.setuptools.package-data]
+# trained models exported with scripts/export_models.py (gmcr/trained/<name>/)
+gmcr = ["trained/*/*"]

@@ -17,3 +17,5 @@ dist/
 !examples/predict/sample_features/*.parquet
 examples/predict/demo_models/
 examples/predict/output/
+# trained models bundled with the package (scripts/export_models.py)
+!gmcr/trained/**

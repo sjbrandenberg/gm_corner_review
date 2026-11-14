@@ -307,6 +307,22 @@ chose a `polyvar_*` curve family need `--fchp-variants` with `--workspaces`. For
 predictions, give it features that went through `join_metadata.py` (finite-fault distances, site
 data), as the training data did; otherwise those predictors are missing and the script says so.
 
+### Bundling the trained models with the package
+
+The trained models exist only in the training output folders on Stampede3, and `$SCRATCH`
+is purged. To ship them, export the chosen folders into `gmcr/trained/` (version-independent
+JSON + LightGBM text files, checked against `models.joblib`), then commit:
+
+```bash
+cd $WORK/gm_corner_review && git pull
+gmcr                                   # activate the env
+python scripts/export_models.py $SCRATCH/gmcr_run/models/fchp $SCRATCH/gmcr_run/models/fclp     $SCRATCH/gmcr_run/models/accept    # add an auto_fchp calibration folder if you use one
+git add gmcr/trained && git commit -m "Bundle trained models" && git push
+```
+
+Users then run `python scripts/predict.py fchp --workspaces ... --out ...` (or `--list-models`)
+without any files from Stampede3.
+
 ## 4. Keep the results
 
 `$SCRATCH` is purged. Copy the outputs to `$WORK`, and anything worth keeping long-term to

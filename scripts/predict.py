@@ -6,7 +6,9 @@
     # straight from workspace files (features are extracted to a temporary folder first)
     python scripts/predict.py MODEL_DIR --workspaces EVENT_DIR/*.h5 --out predictions.csv
 
-MODEL_DIR is an output folder of one of the training scripts:
+MODEL_DIR is the name of a model bundled with the package (python scripts/predict.py
+--list-models; exported with scripts/export_models.py into gmcr/trained/), or a folder:
+the output of scripts/export_models.py, or an output folder of one of the training scripts:
 
   train_corner_model.py --target fchp   high-pass corner (Hz)
   train_corner_model.py --target fclp   low-pass corner (Hz)
@@ -177,8 +179,48 @@ def predict_auto(df, report, name):
 # --------------------------------------------------------------------------- main
 
 
+def resolve_model_dir(arg):
+    """A model folder path, or the name of a model bundled with the package (gmcr/trained/)."""
+    from gmcr import portable
+
+    path = Path(arg)
+    if path.is_dir():
+        return path
+    bundled = portable.bundled_dirs()
+    if arg in bundled:
+        return bundled[arg]
+    names = ", ".join(bundled) or "none"
+    sys.exit(f"{arg}: neither a model folder nor a bundled model (bundled: {names})")
+
+
+def list_models():
+    from gmcr import portable
+
+    bundled = portable.bundled_dirs()
+    if not bundled:
+        print("no models are bundled with this copy of gmcr (gmcr/trained/ is empty); give the path "
+              "of a model folder instead (see scripts/export_models.py)")
+        return
+    print(f"models bundled with gmcr ({portable.TRAINED}):")
+    for name, path in bundled.items():
+        meta = json.loads((path / "model.json").read_text())
+        report = json.loads((path / "report.json").read_text())
+        prov = json.loads((path / "provenance.json").read_text()) if (path / "provenance.json").exists() else {}
+        rec = meta.get("recommendation") or default_model(meta["kind"], report)
+        m = report.get("metrics", {}).get(rec, {})
+        score = (f"cross-validated RMSE {m['rmse_ln']:.3f} (ln)" if "rmse_ln" in m else
+                 f"cross-validated AUC {m['auc']:.3f}" if "auc" in m else "")
+        print(f"  {name:22s} {meta['kind']:9s} default model {rec:22s} {score}; "
+              f"{report.get('n_traces', '?')} traces, {report.get('n_events', '?')} events; "
+              f"exported {prov.get('exported_utc', '?')[:10]}")
+
+
 def model_kind(model_dir):
     model_dir = Path(model_dir)
+    from gmcr import portable
+
+    if portable.is_portable(model_dir):
+        return portable.load_model_dir(model_dir)
     report = json.loads((model_dir / "report.json").read_text())
     if "selected" in report and not (model_dir / "models.joblib").exists():
         return "auto_fchp", report, None
@@ -200,12 +242,15 @@ def default_model(kind, report):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("model_dir", help="output folder of a training or calibration run")
-    src = p.add_mutually_exclusive_group(required=True)
+    p.add_argument("model_dir", nargs="?",
+                   help="name of a bundled model (see --list-models), or a model folder: the output of "
+                        "a training or calibration run, or of scripts/export_models.py")
+    p.add_argument("--list-models", action="store_true", help="list the bundled models and exit")
+    src = p.add_mutually_exclusive_group()
     src.add_argument("--features", help="folder with traces_joined.parquet or traces_all.parquet "
                                         "and curves_all.parquet")
     src.add_argument("--workspaces", nargs="+", help="workspace .h5 files or folders of them")
-    p.add_argument("--out", required=True, help="predictions file (.csv or .parquet)")
+    p.add_argument("--out", help="predictions file (.csv or .parquet)")
     p.add_argument("--model", default=None, help="model to apply (default: the report's recommendation)")
     p.add_argument("--flag-share", type=int, choices=[50, 80, 90], default=None,
                    help="accept models: flag records with the threshold that flagged this percentage "
@@ -214,8 +259,14 @@ def main():
                    help="with --workspaces: also extract the polyvar_* curves (needed by auto_fchp "
                         "calibrations that selected one of them)")
     args = p.parse_args()
+    if args.list_models:
+        list_models()
+        return
+    if not args.model_dir or not (args.features or args.workspaces) or not args.out:
+        p.error("give a model (name or folder), --features or --workspaces, and --out "
+                "(or --list-models)")
 
-    kind, report, bundle = model_kind(args.model_dir)
+    kind, report, bundle = model_kind(resolve_model_dir(args.model_dir))
     name = args.model or default_model(kind, report)
     print(f"model: {kind} / {name}"
           + ("" if args.model else " (recommended)"), flush=True)
