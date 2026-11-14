@@ -12,3 +12,8 @@ dist/
 # credentials (nga-gm.org tokens etc.)
 *token*.txt
 .env
+
+# the predict example ships its small sample input; its demo models and outputs stay local
+!examples/predict/sample_features/*.parquet
+examples/predict/demo_models/
+examples/predict/output/

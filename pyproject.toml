@@ -7,7 +7,12 @@ name = "gmcr"
 version = "0.1.0"
 description = "Learn corner-frequency and accept/reject decisions from human-reviewed gmprocess workspaces"
 requires-python = ">=3.10"
-dependencies = ["numpy", "scipy", "h5py", "obspy>=1.4.1", "pandas", "pyarrow", "ucla_geotech_tools==3.0.3", "ucla_plha>=2.1.0", "pyproj", "requests"]
+dependencies = ["numpy", "scipy", "h5py", "obspy>=1.4.1", "pandas", "pyarrow", "ucla_geotech_tools==3.0.3", "ucla_plha>=2.1.0", "pyproj", "requests",
+                "scikit-learn", "joblib", "matplotlib"]
+
+[project.optional-dependencies]
+# LightGBM models (needed when a run recommends one) and the training scripts
+ml = ["lightgbm"]
 
 [tool.setuptools]
 packages = ["gmcr"]

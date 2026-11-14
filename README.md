@@ -7,6 +7,9 @@ human-reviewed gmprocess workspaces (NGA-West3 review GUI v6.2).
 2. Attach database metadata (nga-gm.org) and computed distances.
 3. Train and compare corner-frequency and accept/reject models.
 
+**To apply a trained model to new records, start with the example in
+[examples/predict/](examples/predict/README.md).**
+
 **To run it end to end (staging with Globus, Stampede3 jobs, training), follow
 [docs/RUNBOOK.md](docs/RUNBOOK.md).**
 
