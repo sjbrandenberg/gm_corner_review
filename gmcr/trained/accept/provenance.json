@@ -1,0 +1,21 @@
+{
+ "exported_utc": "2026-11-14T22:15:45+00:00",
+ "source": "/scratch/03998/sjbrande/gmcr_run/models/accept",
+ "gmcr_commit": "3990c2b0e09d4bcc6fb12407ed2176dcca53e302",
+ "packages_at_export": {
+  "python": "3.11.17",
+  "numpy": "2.4.6",
+  "pandas": "3.0.6",
+  "sklearn": "1.9.1",
+  "lightgbm": "4.7.0",
+  "scipy": "1.17.1"
+ },
+ "note": "",
+ "training": {
+  "n_traces": 141992,
+  "n_events": 277,
+  "folds": 5,
+  "recommendation": "lightgbm",
+  "dropped": []
+ }
+}

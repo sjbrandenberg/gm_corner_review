@@ -1,0 +1,191 @@
+{
+ "format_version": 1,
+ "kind": "fclp",
+ "recommendation": "lightgbm",
+ "features": [
+  "ln_fchp_gmp",
+  "ln_fchp_gui",
+  "gui_at_cap",
+  "method_polyfit",
+  "ln_fclp_gmp",
+  "magnitude",
+  "depth_km",
+  "ln_rrup",
+  "ln_rjb",
+  "rx",
+  "ry0",
+  "ln_sampling_rate",
+  "is_vertical",
+  "accelerometer",
+  "broadband",
+  "ln_snr2_flo",
+  "ln_snr2_fhi",
+  "ln_snr3_flo",
+  "ln_snr3_fhi",
+  "ln_snr5_flo",
+  "ln_snr5_fhi",
+  "ln_snr10_flo",
+  "ln_snr10_fhi",
+  "ln_snr_at_0.1hz",
+  "ln_snr_at_0.3hz",
+  "ln_snr_at_1hz",
+  "ln_snr_at_3hz",
+  "ln_snr_at_10hz",
+  "ln_snr_max",
+  "ln_stress_drop",
+  "ln_f0",
+  "fit_magnitude",
+  "clipping_prob",
+  "zero_crossing_rate",
+  "preevent_noise_s",
+  "ln_signal_duration",
+  "ln_pga_gmp",
+  "ln_pga_ratio",
+  "poly_ratio_at_gmp",
+  "poly_ratio_at_gui",
+  "pre_ratio_at_gmp",
+  "pre_ratio_at_gui",
+  "psa_rough_short",
+  "psa_max_bump_short",
+  "psa001_over_pga",
+  "ln_vs30",
+  "ln_z1p0"
+ ],
+ "curves": false,
+ "dropped": [],
+ "simple_features": null,
+ "models": {
+  "simple": {
+   "type": "fclp_simple",
+   "classifier": {
+    "type": "logistic",
+    "inputs": [
+     "ln_fclp_gmp",
+     "magnitude",
+     "ln_rrup",
+     "accelerometer",
+     "is_vertical",
+     "ln_snr3_fhi",
+     "psa_rough_short",
+     "psa_max_bump_short"
+    ],
+    "used": [
+     "ln_fclp_gmp",
+     "magnitude",
+     "ln_rrup",
+     "accelerometer",
+     "is_vertical",
+     "ln_snr3_fhi",
+     "psa_rough_short",
+     "psa_max_bump_short"
+    ],
+    "median": [
+     2.70805020110221,
+     4.37,
+     5.268535983974589,
+     0.0,
+     0.0,
+     2.655116118012779,
+     13.100343266473946,
+     0.11751224306779884
+    ],
+    "mean": [
+     2.7540995343437187,
+     4.528199895920395,
+     5.053742976658563,
+     0.37965401416113415,
+     0.3262107138914734,
+     2.7029204077931377,
+     22.38064943635661,
+     0.14459531451355548
+    ],
+    "scale": [
+     0.5769819505308817,
+     0.550663218258586,
+     0.7634814346965004,
+     0.4853007765216036,
+     0.4688254302337797,
+     0.6530098292588208,
+     25.526921933653874,
+     0.13092133039794673
+    ],
+    "coef": [
+     1.7322690663706997,
+     -0.3765257573459332,
+     1.8368282626776467,
+     0.141676272528811,
+     0.09211337668937168,
+     -1.0548040600066835,
+     0.26120455427247974,
+     0.3089304612523316
+    ],
+    "intercept": -4.3415105819901
+   },
+   "shift": {
+    "type": "loglinear",
+    "features": [
+     "ln_fclp_gmp",
+     "magnitude",
+     "ln_rrup",
+     "accelerometer",
+     "is_vertical",
+     "ln_snr3_fhi",
+     "psa_rough_short",
+     "psa_max_bump_short"
+    ],
+    "fill": [
+     3.08024638875621,
+     4.27,
+     5.573354090948883,
+     0.0,
+     0.0,
+     2.6953684953113477,
+     24.115632736137417,
+     0.17479911835578132
+    ],
+    "mean": [
+     2.9965877928841262,
+     4.396504903193362,
+     5.464423730776308,
+     0.22831279859190345,
+     0.40080462660296706,
+     2.7671544022216232,
+     35.616003414968205,
+     0.22622362656810244
+    ],
+    "sd": [
+     0.6140139750111283,
+     0.46817242234121614,
+     0.47888247486787544,
+     0.41979801926822746,
+     0.4901231277760759,
+     0.7693408942698098,
+     34.65944464884944,
+     0.19512698601705314
+    ],
+    "coef": [
+     -0.7422805508497853,
+     -0.281312792044609,
+     0.017582561878043107,
+     -0.08485643787500746,
+     0.014370822287787789,
+     -0.007535562255839006,
+     0.06529209149094846,
+     -0.08294923984138473,
+     -0.007225303498928057
+    ],
+    "sigma_ln": 0.34684846114052076
+   }
+  },
+  "lightgbm_classifier": {
+   "type": "lightgbm",
+   "file": "lightgbm_lightgbm_classifier.txt",
+   "objective": "binary"
+  },
+  "lightgbm_shift": {
+   "type": "lightgbm",
+   "file": "lightgbm_lightgbm_shift.txt",
+   "objective": "regression"
+  }
+ }
+}
