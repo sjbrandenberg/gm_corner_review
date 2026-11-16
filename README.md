@@ -149,7 +149,13 @@ folder with `--variants-dir` (use `--jobs` to search the families in parallel).
 
 ## Notes
 
-* `ucla_geotech_tools==3.0.3`: `auto_fchp` matches the GUI; `response_spectrum.get_ARS`
-  has a bug (`Fmotion(1.0 + ...)` missing `*`; `zeropad` ignored), so gmcr computes PSA itself.
+* `ucla_geotech_tools`: the review GUI used 3.0.3, whose `auto_fchp` gmcr reproduces exactly, so
+  `environment.yml` (training/extraction) pins 3.0.3. The package itself accepts any 3.x (>= 3.0.3),
+  so it installs next to newer versions. 3.1.0 fits the polynomial in normalized time and builds the
+  time vector with `arange`; on nc73819746 it gives the same fchp on 61 of 63 traces and differs by
+  at most 0.16% (CI.FDR BHZ/HHZ). That is negligible for predictions, but extraction with 3.1.0 would
+  label such adopted GUI values as `manual` in `y_fchp_source`; `gmcr.extract` warns when the
+  installed version isn't 3.0.3 and records it in each file's log. gmcr computes PSA itself
+  (3.0.3's `response_spectrum.get_ARS` has a missing `*` bug).
 * Analysts never reviewed auto-rejected records, so accept/reject labels can only
   tighten the existing criteria.

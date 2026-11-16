@@ -41,7 +41,7 @@ PACKAGES = [  # (import name, pip/conda name)
     ("numpy", "numpy"), ("scipy", "scipy"), ("pandas", "pandas"), ("pyarrow", "pyarrow"),
     ("sklearn", "scikit-learn"), ("joblib", "joblib"), ("h5py", "h5py"), ("obspy", "obspy"),
     ("pyproj", "pyproj"), ("matplotlib", "matplotlib"),
-    ("ucla_geotech_tools.auto_fchp", "ucla_geotech_tools==3.0.3"),
+    ("ucla_geotech_tools.auto_fchp", "ucla_geotech_tools>=3.0.3"),
 ]
 OPTIONAL = [("lightgbm", "lightgbm")]  # only for models whose recommendation is LightGBM
 
