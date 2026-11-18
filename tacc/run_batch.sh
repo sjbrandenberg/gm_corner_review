@@ -33,18 +33,7 @@ source "${CONDA_ROOT:-$WORK/miniforge3}/etc/profile.d/conda.sh"
 conda activate gmcr
 
 if [ -z "${SKIP_TRANSFER:-}" ]; then
-    : "${DESIGNSAFE_COLLECTION:?export DESIGNSAFE_COLLECTION}" "${STAMPEDE3_COLLECTION:?export STAMPEDE3_COLLECTION}"
-    TASK=$(globus transfer "$DESIGNSAFE_COLLECTION" "$STAMPEDE3_COLLECTION" \
-        --batch "$BATCH_FILE" --label "gmcr-$B" --verify-checksum \
-        --jmespath task_id --format unix)
-    echo "$(date) Globus task $TASK started for $B"
-    echo "$TASK" > "$RUN_DIR/globus/$B.task"
-    until globus task wait "$TASK" --timeout 3600 --polling-interval 60 >/dev/null 2>&1; do
-        STATUS=$(globus task show "$TASK" --jmespath status --format unix)
-        echo "$(date) $B: $STATUS"
-        [ "$STATUS" = "FAILED" ] && { echo "transfer failed: globus task show $TASK"; exit 1; }
-    done
-    echo "$(date) $B transferred"
+    bash "$REPO/tacc/stage_batch.sh" "$B" "$RUN_DIR/globus"
 fi
 
 python "$REPO/tacc/inventory.py" "$STAGE_ROOT/$B" --sample 20

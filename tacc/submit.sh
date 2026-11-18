@@ -1,7 +1,7 @@
 #!/bin/bash
 # Submit a gmcr job so that it runs entirely from $SCRATCH (run on a login node).
 #
-#   bash tacc/submit.sh <extract|train|slim> [VAR=value ...] [-- sbatch options ...]
+#   bash tacc/submit.sh <extract|train|slim|reprocess> [VAR=value ...] [-- sbatch options ...]
 #
 #   bash tacc/submit.sh train FEATURES_DIR=$SCRATCH/gmcr_run/features
 #   bash tacc/submit.sh extract RUN_DIR=$SCRATCH/gmcr_test -- -N 1 -t 01:00:00
@@ -15,13 +15,13 @@
 # (<job name>.<job id>.out / .err) and GMCR_REPO / GMCR_PACK pointing at the copies.
 
 set -euo pipefail
-JOB=${1:?usage: submit.sh <extract|train|slim> [VAR=value ...] [-- sbatch options ...]}
+JOB=${1:?usage: submit.sh <extract|train|slim|reprocess> [VAR=value ...] [-- sbatch options ...]}
 shift
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 DST=$SCRATCH/gm_corner_review
 LOGS=$SCRATCH/gmcr_logs
 PACK_SRC=${GMCR_PACK_SRC:-$WORK/gmcr_env.tar.gz}
-PACK=$SCRATCH/gmcr_env.tar.gz
+PACK=$SCRATCH/$(basename "$PACK_SRC")   # GMCR_PACK_SRC=$WORK/gmp29_env.tar.gz for reprocess
 
 VARS=()
 while [ $# -gt 0 ] && [ "$1" != "--" ]; do VARS+=("$1"); shift; done

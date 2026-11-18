@@ -80,7 +80,7 @@ def _delete_source(path):
 
 def process_file(path, outdir, reviewed_only=False, compute_psa=True, label=None,
                  stage_dir=None, stage_mode="slim", delete_source=False, fchp_variants=False,
-                 generation=None):
+                 generation=None, metadata_only=False):
     """Extract one workspace file. With stage_dir (e.g. node-local /tmp), the file is
     first copied there (whole, or only the parts gmcr reads with stage_mode="slim"),
     read from the copy, and the copy is deleted afterwards, also on errors.
@@ -90,6 +90,9 @@ def process_file(path, outdir, reviewed_only=False, compute_psa=True, label=None
     only copy of the data). Files with errors are kept for a rerun.
 
     fchp_variants=True adds the auto_fchp calibration curves (gmcr.fchp_variants).
+
+    metadata_only=True reads no waveforms (gmcr.features.trace_features(waveforms=False)): for lists
+    of every record and its outcome (scripts/record_status.py), at milliseconds per trace.
 
     generation: the model generation (gmcr.generations) whose auto_fchp computes fchp_gui and the
     displacement-ratio curves. By default, the one for the workspace's gmprocess version; a file
@@ -136,7 +139,8 @@ def process_file(path, outdir, reviewed_only=False, compute_psa=True, label=None
                 try:
                     rec, curves = ft.trace_features(ws, tid, compute_psa=compute_psa,
                                                     fchp_variants=fchp_variants,
-                                                    auto_fchp=af_version)
+                                                    auto_fchp=af_version,
+                                                    waveforms=not metadata_only)
                     log["n_ok"] += 1
                 except Exception:
                     rec, curves = {"event_id": ws.event_id, "trace_id": tid}, {}
@@ -192,6 +196,9 @@ def main(argv=None):
     p.add_argument("--fchp-variants", action="store_true",
                    help="add polynomial-fit ratio curves for other orders and fit windows "
                         "(for scripts/calibrate_auto_fchp.py)")
+    p.add_argument("--metadata-only", action="store_true",
+                   help="read no waveforms: metadata, gmprocess's decisions, reviews, cached SNR "
+                        "(for record lists, scripts/record_status.py; use without --reviewed-only)")
     p.add_argument("--generation", default=None, choices=list(generations.GENERATIONS),
                    help="model generation whose auto_fchp to use (default: the one for each "
                         "workspace's gmprocess version)")
@@ -212,7 +219,7 @@ def main(argv=None):
             continue
         s = process_file(fn, a.out, a.reviewed_only, not a.no_psa, a.label,
                          a.stage_dir, a.stage_mode, a.delete_source, a.fchp_variants,
-                         a.generation)
+                         a.generation, a.metadata_only)
         status[s] = status.get(s, 0) + 1
         print(f"{s:8s} {fn}", flush=True)
     print(status)

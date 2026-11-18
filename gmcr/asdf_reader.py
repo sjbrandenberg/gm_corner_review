@@ -139,6 +139,12 @@ class Workspace:
             int(ds.attrs["starttime"]),
         )
 
+    def sampling_rate(self, trace_id, processed=True):
+        """Sampling rate (Hz) of a waveform, from its attributes (no data read), or None."""
+        tag = f"{self.event_id}_{self.label}" if processed else f"{self.event_id}_{UNPROCESSED}"
+        path = self.waveforms.get((trace_id, tag))
+        return None if path is None else float(self.f[path].attrs["sampling_rate"])
+
     def obspy_trace(self, trace_id, processed=True):
         import obspy
 

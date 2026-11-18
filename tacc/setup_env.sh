@@ -31,7 +31,7 @@ conda activate gmcr
 # non-editable install so the packed env is self-contained
 pip install --no-deps "$REPO"
 
-python -c "import gmcr, obspy, h5py, ucla_geotech_tools.auto_fchp; print('gmcr env OK')"
+python -c "import gmcr, gmcr.auto_fchp_303, gmcr.auto_fchp_310, obspy, h5py; print('gmcr env OK')"
 
 echo "Packing env to $PACK"
 rm -f "$PACK"

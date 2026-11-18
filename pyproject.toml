@@ -19,4 +19,4 @@ packages = ["gmcr"]
 
 [tool.setuptools.package-data]
 # trained models exported with scripts/export_models.py (gmcr/trained/<generation>/<name>/)
-gmcr = ["trained/*/*/*"]
+gmcr = ["trained/*/*/*", "conf/*/*.yml"]

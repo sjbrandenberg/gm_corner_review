@@ -102,11 +102,13 @@ def psa_shape_metrics(T, psa, pga):
 
 
 def trace_features(ws, trace_id, compute_psa=True, fchp_variants=False,
-                   auto_fchp=gr.GUI_AUTO_FCHP):
+                   auto_fchp=gr.GUI_AUTO_FCHP, waveforms=True):
     """Return (scalars, curves) for one processed trace in workspace `ws`.
 
     auto_fchp: the ucla_geotech_tools version of auto_fchp for fchp_gui and the displacement-ratio
     curves (gmcr.generations.auto_fchp_version of the model generation).
+    waveforms=False stops before reading any waveform: metadata, gmprocess's decisions, the review,
+    and the cached SNR only (milliseconds per trace; for record lists such as scripts/record_status.py).
     fchp_variants=True adds the polynomial-fit ratio curves for other orders and fit windows
     (gmcr.fchp_variants), for calibrating auto_fchp."""
     import obspy
@@ -203,6 +205,14 @@ def trace_features(ws, trace_id, compute_psa=True, fchp_variants=False,
         fq, sp_ = ws.cached(trace_id, name + "Freq"), ws.cached(trace_id, name + "Spec")
         if fq is not None and sp_ is not None:
             curves[key] = _interp_loglog(fq, sp_, FREQ_GRID)
+
+    if not waveforms:
+        sr = ws.sampling_rate(trace_id)
+        rec["sampling_rate"] = sr if sr is not None else np.nan
+        rec["nyquist"] = rec["sampling_rate"] / 2.0
+        rec["y_fclp_none"] = bool(np.isfinite(y_fclp) and y_fclp > rec["nyquist"] * 1.01)
+        rec["y_fclp"] = np.nan if rec["y_fclp_none"] else y_fclp
+        return rec, curves
 
     # --- waveforms the analyst saw
     tr_p = ws.obspy_trace(trace_id, processed=True)

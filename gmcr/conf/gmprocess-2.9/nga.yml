@@ -1,0 +1,170 @@
+# NGA settings for gmprocess 2.9 (gmrecords --confdir): the processing config of gmcr's gmprocess-2.9
+# model generation (gmcr/generations.py). gmcr's models describe gmprocess's decisions, so they are
+# valid only for records processed with the config they were trained on: the Stampede3 reprocessing
+# of the training events (gmcr.reprocess) and the nga-gm server (bin/gmp/setup_server.sh links its
+# conf/nga.yml here, in the gmcr checkout it pins) both use this file. Don't change it without
+# training a new generation.
+#
+# gmprocess merges this file over its own defaults (gmprocess/data/config_production.yml), so only
+# what differs is here. It carries over the NGA-West3 project's gmprocess 1.3 configuration
+# (DesignSafe/gmprocess/conf/user.yml), which made the workspaces the review GUI and the
+# gmprocess-1.3 models were built on, with the 2.x names:
+#   compute_snr: bandwidth            -> smoothing_parameter
+#   ridder_fchp: (corners per trace)  -> same_horiz: false, which is what 1.3 did
+# Credentials (KNET/KiK-net user and password, CESMD email) and the user section don't belong here:
+# put them in another .yml in the same conf folder (gmprocess merges every .yml there; none may
+# repeat this file's keys).
+
+fetchers:
+    # 1.3: off; the FDSN search radius below is fixed instead of model-based
+    search_parameters:
+        enabled: False
+    KNETFetcher:
+        enabled: False
+        radius: 100.0
+        dt: 60.0
+        ddepth: 30.0
+        dmag: 0.3
+        restrict_stations: False
+    CESMDFetcher:
+        enabled: False
+        process_type: raw
+        station_type: Ground
+        eq_radius: 10.0
+        eq_dt: 10.0
+        station_radius: 300.0
+    FDSNFetcher:
+        enabled: True
+        domain:
+            type: circular
+            circular:
+                use_epicenter: True
+                minradius: 0.0
+                maxradius: 2.703  # degrees, about 300 km
+        restrictions:
+            time_before: 60.0
+            time_after: 420.0
+            channel: "HH?,HN?,BH?,BN?"
+            network: "*"
+            location: "*"
+            exclude_networks: ['SY', 'ZY', 'YH', 'YG', 'AM']
+            minimum_length: 0.1
+            sanitize: True
+            minimum_interstation_distance_in_m: 0.0
+
+windows:
+    signal_end:
+        method: model
+        model: AS16
+        epsilon: 3.0
+        vmin: 1.0
+        floor: 120.0
+        # 2.x adds a stable-region override (method source_path by default); 1.3 had none
+        Regions:
+            Stable:
+                method: model
+                model: AS16
+                epsilon: 3.0
+                vmin: 1.0
+                floor: 120.0
+    window_checks:
+        enabled: False
+        min_noise_duration: 0.05
+        min_signal_duration: 5.0
+
+processing:
+    - check_free_field:
+        reject_non_free_field: True
+    - check_instrument:
+        n_max: 3
+        n_min: 2
+        require_two_horiz: True
+    - min_sample_rate:
+        min_sps: 20.0
+    - check_clipping:
+        threshold: 0.2
+    - detrend:
+        detrending_method: linear
+    - detrend:
+        detrending_method: demean
+    - check_zero_crossings:
+        min_crossings: 0.1
+    - remove_response:
+        f1: 0.001
+        f2: 0.005
+        f3: null
+        f4: null
+        water_level: 60.0
+    - detrend:
+        detrending_method: linear
+    - detrend:
+        detrending_method: demean
+    - compute_snr:
+        smoothing_parameter: 20.0
+    - snr_check:
+        threshold: 2.0
+        min_freq: 'f0'
+        max_freq: 5.0
+        f0_options:
+            stress_drop: 10.0
+            shear_vel: 3.7
+            ceiling: 2.0
+            floor: 1.0
+    - get_corner_frequencies:
+        method: snr
+        constant:
+            highpass: 0.08
+            lowpass: 20.0
+        magnitude:
+            minmag: [-999.0, 3.5, 5.5]
+            highpass: [0.5, 0.3, 0.1]
+            lowpass: [25.0, 35.0, 40.0]
+        snr:
+            same_horiz: False
+    - lowpass_max_frequency:
+        fn_fac: 0.75
+    - cut:
+        sec_before_split: 2.0
+    - taper:
+        type: hann
+        width: 0.05
+        side: both
+    - ridder_fchp:
+        target: 0.008
+        tol: 0.001
+        maxiter: 30
+        maxfc: 2.0
+        same_horiz: False
+    - highpass_filter:
+        frequency_domain: True
+        filter_order: 5
+        number_of_passes: 1
+    - lowpass_filter:
+        filter_order: 5
+        number_of_passes: 1
+    - detrend:
+        detrending_method: pre
+    - fit_spectra:
+        kappa: 0.035
+        RP: 0.55
+        VHC: 0.7071068
+        FSE: 2.0
+        density: 2.8
+        shear_vel: 3.7
+        R0: 1.0
+        moment_factor: 100.0
+        min_stress: 0.1
+        max_stress: 10000.0
+    - check_tail:
+        duration: 5.0
+        max_vel_ratio: 0.75
+        max_dis_ratio: 0.9
+
+# The review keeps every co-located instrument, as in 1.3
+colocated:
+    enabled: False
+
+# The database computes its own intensity measures (bin/compute_metrics.py); keep gmprocess's short
+metrics:
+    output_imcs: [ROTD50, channels]
+    output_imts: [PGA, PGV, SA, duration]

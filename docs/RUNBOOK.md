@@ -419,6 +419,147 @@ python scripts/calibrate_auto_fchp.py $R/features --variants-dir $SCRATCH/gmcr_v
 
 Each process holds one family's curves (~25 MB) plus the shared arrays.
 
+## 6. Retraining for gmprocess 2.9 (model generation gmprocess-2.9)
+
+The models above were trained on gmprocess 1.3 workspaces, and gmprocess 2.9 makes different automatic
+decisions on the same raw data (its low-pass corners are ~30% higher), so new records processed with 2.9
+need models trained on 2.9 output (`gmcr/generations.py`). The training events are reprocessed with
+gmprocess 2.9 and the generation's config (`gmcr/conf/gmprocess-2.9/nga.yml`, which the nga-gm server
+uses too), and the analysts' decisions are carried over by trace id:
+
+| step | where | script |
+|---|---|---|
+| 6.0 env with gmprocess 2.9, STREC data | login node (internet) | `tacc/setup_gmp29_env.sh` |
+| 6.1 per batch: stage, prepare (StationXML, STREC, SIS metadata) | login node (internet), tmux | `tacc/run_reprocess_batch.sh` |
+| 6.1 per batch: export raw data, gmprocess 2.9, extract | 1 compute node | `tacc/reprocess.slurm` (submitted by the above) |
+| 6.2 labels from the 1.3 extraction | login node | `scripts/transfer_labels.py` |
+| 6.3 train, compare, bundle | 1 compute node | `tacc/train.slurm`, `scripts/export_models.py` |
+
+What `gmcr.reprocess` does with each event (all of its staged files: events split over several
+workspace files are reprocessed as one, and a station reviewed in two files once):
+
+* only instruments with a reviewed trace (e.g. `CI.CRY..HN`) are reprocessed;
+* `prepare` writes the event's origin and magnitude **from the 1.3 workspace** (so the signal windows
+  are those the analysts saw, not today's ComCat values), the 1.3 StationXML, STREC's tectonic region,
+  and the event's ANSS SIS snapshot (`sis/`), which gmprocess applies offline when it assembles;
+* `run` writes the 1.3 *unprocessed* traces as MiniSEED. gmprocess 2.9 requires integer raw data;
+  1.3 stored some count traces as floats (half counts from merging gappy segments), which are rounded
+  to whole counts. Traces whose response says they are in physical units (sensitivity < 1000) can't be
+  rounded and are left out (`physical_units` in the report);
+* then `gmrecords assemble` and `process_waveforms` with the generation's config, gmcr's extraction
+  (auto_fchp 3.1.0), and cleanup: the MiniSEED files, the 2.9 workspace, and the staged 1.3 files go;
+  the event folder keeps its metadata, `sis/`, logs, and `reprocess.json`.
+
+### 6.0 One-time setup
+
+```bash
+cd $WORK/gm_corner_review && git pull
+bash tacc/setup_gmp29_env.sh       # login node: conda env "gmp29", $WORK/gmp29_env.tar.gz, $WORK/strec_data
+```
+
+The 1.3 extraction's merged features (`traces_all.parquet`, `curves_all.parquet`, and `db/`) supply the
+labels. They were on `$SCRATCH/gmcr_run/features`; if `$SCRATCH` was purged, use the copy kept in
+step 4. The batch files (`$SCRATCH/gmcr_run/globus/b*.txt`) can be rebuilt with the two commands of 0.3
+(`scan_reviews.py`, then `globus_batches.py --select`): retraining uses the same files as the 1.3 run.
+
+### 6.1 Reprocess, batch after batch
+
+Test on a few events first: prepare the first batch without submitting, run the first three events,
+and look at the report:
+
+```bash
+tmux new -s gmcr29
+cd $WORK/gm_corner_review
+SKIP_SUBMIT=1 bash tacc/run_reprocess_batch.sh b001     # stages b001 (skip with SKIP_TRANSFER=1), prepares it
+head -n 3 $SCRATCH/gmcr29_run/tasks_b001.txt > $SCRATCH/gmcr29_run/tasks_test.txt
+GMCR_PACK_SRC=$WORK/gmp29_env.tar.gz bash tacc/submit.sh reprocess \
+    RUN_DIR=$SCRATCH/gmcr29_run TASKS=$SCRATCH/gmcr29_run/tasks_test.txt -- -t 01:00:00
+# when it finishes:
+python tacc/make_reprocess_tasks.py $SCRATCH/gmcr29_run --report
+cat $SCRATCH/gmcr29_run/events/b001/<event id>/reprocess.json
+```
+
+The first three tasks are the batch's largest events, so the test also shows the worst-case memory
+and time. Check `$SCRATCH/gmcr29_run/events/b001/prepare.json` (SIS outcomes per event: `usable` for
+most CI/NC/BK stations, `no_coverage` for networks outside ANSS SIS) and the report: status `ok`, `n_ok`
+close to `n_traces`, few `physical_units`, and the time per stage, which sets the node-hours of the
+rest. Then the batches:
+
+```bash
+SKIP_TRANSFER=1 bash tacc/run_reprocess_batch.sh b001   # the rest of b001 (finished events are skipped)
+bash tacc/run_reprocess_batch.sh b002
+...
+```
+
+Each job runs one event per task, 24 tasks per node (gmprocess keeps an event's streams in memory),
+largest events first; `NODES=2` speeds up a batch. After each job, `ls $SCRATCH/gm_stage/<batch>`
+holds only the files of events that failed or had nothing to reprocess. To retry the failures, rerun
+`SKIP_TRANSFER=1 bash tacc/run_reprocess_batch.sh <batch>`. To fetch an event's SIS metadata again,
+delete its `sis/` folder and rerun.
+
+### 6.2 Labels
+
+```bash
+gmcr
+L=$SCRATCH/gmcr_run/features          # the 1.3 extraction (or its copy from step 4)
+python scripts/transfer_labels.py --labels $L --features $SCRATCH/gmcr29_run/features \
+    --out $SCRATCH/gmcr29_run/train
+cp -r $L/db $SCRATCH/gmcr29_run/train/     # database metadata: same events, no need to fetch again
+```
+
+`summary.json` counts the reviews matched to reprocessed traces, the ones left out and why
+(`unmatched_reviews.csv`), the reviewed traces gmprocess 2.9 rejects automatically (dropped), how
+often the analyst kept gmprocess 1.3's corner, and the shifts between the versions' automatic corners.
+
+Labels are the analysts' corners in Hz (`--kept absolute`). Where the analyst kept gmprocess 1.3's
+corner, `--kept relative` assumes they would have kept 2.9's instead; that matters most for fclp,
+where analysts kept the automatic value most of the time (15 of 18 traces on nc73819746). Train both
+ways to see the difference if in doubt (separate `--out` folders).
+
+### 6.3 Train, compare, bundle
+
+```bash
+bash tacc/submit.sh train FEATURES_DIR=$SCRATCH/gmcr29_run/train     # models in $SCRATCH/gmcr29_run/models
+```
+
+Compare `$SCRATCH/gmcr29_run/models/summary.md` with the 1.3 run's. The training reports record the
+generation (`gmprocess-2.9`), so the export puts the models in `gmcr/trained/gmprocess-2.9/`:
+
+```bash
+python scripts/export_models.py $SCRATCH/gmcr29_run/models/fchp $SCRATCH/gmcr29_run/models/fclp \
+    $SCRATCH/gmcr29_run/models/accept
+git add gmcr/trained && git commit -m "Bundle the gmprocess-2.9 models" && git push
+```
+
+`predict.py fchp --workspaces ...` then uses them for 2.9 workspaces and the 1.3 models for 1.3 ones.
+
+### 6.4 List of every record and its outcome (for distance limits)
+
+Each reprocessing task also lists every trace of the event's 1.3 files, including those gmprocess
+rejected (which the reviewed-only extraction of steps 1-2 left out) and those the analysts rejected,
+into `$SCRATCH/gmcr29_run/records13` (`gmcr.extract --metadata-only`: no waveforms are read, about
+5 ms per trace). The job merges it. When all batches are done:
+
+```bash
+gmcr
+R=$SCRATCH/gmcr29_run/records13
+cp -r $SCRATCH/gmcr_run/features/db $R/          # database metadata (or run fetch_flatfile.py on $R)
+python scripts/merge_outputs.py $R && python scripts/join_metadata.py $R
+python scripts/record_status.py $R               # -> $R/records/records.csv, rejected.csv, summary.json
+```
+
+`records.csv` has one row per trace and file, with `status` (`accepted`, `analyst_rejected`,
+`auto_rejected` with the gmprocess step in `auto_fail_module`, `colocated_not_used`, `not_reviewed`),
+magnitude, style of faulting from the rake (NGA-West2 bins; `ev_rake` kept), sensor class, Rrup/Rjb
+(finite fault, else hypocentral/epicentral: `d_source`), the SNR band edges, and the corners; see the
+docstring of `scripts/record_status.py`. The `db/` folder must cover these events: the 1.3 run's does
+if it was fetched for all extracted events.
+
+These are the files selected for training (`select.csv`): events with reviews. To list the other files
+too (unreviewed events, redundant copies), run the extraction alone on their batches, e.g. with
+`EXTRACT_ARGS='--metadata-only --stage-dir /tmp/gmcr_stage --delete-source' bash tacc/run_batch.sh <batch>`
+and a separate `RUN_DIR`.
+
 ## Troubleshooting
 
 * **Jobs "CANCELLED by 0" after ~2:02 with no log files, or `Input/output error` on a

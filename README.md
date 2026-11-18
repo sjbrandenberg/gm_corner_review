@@ -23,6 +23,9 @@ gmcr/fchp_variants.py  polynomial-fit ratio curves for other orders and event-ti
 gmcr/extract.py        CLI: workspace .h5 -> parquet (resumable; optional copy to node-local
                        /tmp and deletion of the staged source after extraction)
 gmcr/slim.py           copy only what gmcr reads from a workspace
+gmcr/generations.py    model generations: gmprocess version, auto_fchp version, processing config
+gmcr/conf/<generation>/ the gmprocess config of a generation (gmprocess-2.9: nga.yml, also used by nga-gm)
+gmcr/reprocess.py      reprocess the 1.3 training workspaces with gmprocess 2.9 (RUNBOOK section 6)
 gmcr/flatfile_api.py   nga-gm.org API client (reference tables, flatfile)
 gmcr/distances.py      Rrup/Rjb (site-centred projection) and GC2 Rx/Ry0 from finite faults
 gmcr/gc2.py            GC2 coordinates (Spudich & Chiou 2015)
@@ -39,6 +42,13 @@ tacc/run_batch.sh      stage one batch with Globus, check it, submit its extract
 tacc/slim.slurm        slim staged files on one node (not needed with staged batches)
 tacc/inventory.py      count/size/read-check staged files
 tacc/train.slurm       join metadata + train all models on one node
+tacc/setup_gmp29_env.sh   conda env with gmprocess 2.9 ("gmp29"), packed; STREC data (login node)
+tacc/run_reprocess_batch.sh  stage + prepare one batch, submit its reprocessing (RUNBOOK section 6)
+tacc/reprocess.slurm   gmprocess 2.9 + extraction of prepared events, one event per task
+tacc/make_reprocess_tasks.py  task list of a prepared batch; --report summarizes all events
+tacc/stage_batch.sh    stage one Globus batch and wait (used by both run_*batch.sh)
+scripts/transfer_labels.py  the analysts' 1.3 decisions joined to reprocessed features (training tables)
+scripts/record_status.py    every record with its outcome (accepted / rejected by gmprocess or analyst) + metadata
 gmcr/modeling.py       datasets, leakage-safe features, event-grouped CV, metrics, log-linear/Tobit model
 scripts/train_corner_model.py   fchp / fclp: baselines vs simple vs LightGBM
 scripts/train_accept_model.py   accept/reject: constant vs logistic vs LightGBM
