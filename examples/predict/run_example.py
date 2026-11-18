@@ -176,14 +176,19 @@ def choose_models(a):
     if a.model_dir:
         return [(Path(m).name, str(Path(m)), Path(m)) for m in a.model_dir]
     bundled = portable.bundled_dirs()
-    if a.model:
-        unknown = [m for m in a.model if m not in bundled]
-        if unknown:
-            fail(f"not bundled: {', '.join(unknown)}. Bundled models: {', '.join(bundled) or 'none'}")
-        return [(m, m, bundled[m]) for m in a.model]
-    if bundled and not a.demo:
-        print(f"models bundled with the package ({portable.TRAINED}): {', '.join(bundled)}")
-        return [(name, name, path) for name, path in bundled.items()]
+    # Bundled models are <generation>/<name>. A name alone makes predict.py use the model of the
+    # records' generation (gmprocess version); the folder checked here is the first one with it.
+    names = a.model or list(dict.fromkeys(k.split("/", 1)[1] for k in bundled))
+    if names and not a.demo:
+        if not a.model:
+            print(f"models bundled with the package ({portable.TRAINED}): {', '.join(bundled)}")
+        chosen = []
+        for m in names:
+            match = [k for k in bundled if k == m or k.split("/", 1)[1] == m]
+            if not match:
+                fail(f"not bundled: {m}. Bundled models: {', '.join(bundled) or 'none'}")
+            chosen.append((m.replace("/", "_"), m, bundled[match[0]]))
+        return chosen
     if not a.demo:
         print("No models are bundled with this copy of the package yet (gmcr/trained/ is empty).\n"
               "They are added by exporting the trained models (docs/RUNBOOK.md, 'Bundling the trained\n"

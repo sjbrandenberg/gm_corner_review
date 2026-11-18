@@ -38,6 +38,20 @@ def load_traces(features_dir, curves=False):
     return df.reset_index(drop=True)
 
 
+def data_generation(df):
+    """The model generation (gmcr.generations) of a traces table: its 'generation' column, or the
+    legacy gmprocess-1.3 for tables extracted before generations existed. A table that mixes
+    generations is an error."""
+    from .generations import LEGACY
+
+    if "generation" not in df:
+        return LEGACY
+    gens = sorted(df["generation"].dropna().astype(str).unique())
+    if len(gens) > 1:
+        raise ValueError(f"the traces come from several model generations: {', '.join(gens)}")
+    return gens[0] if gens else LEGACY
+
+
 def _log(x):
     x = pd.to_numeric(x, errors="coerce").astype(float)
     return np.log(x.where(x > 0))

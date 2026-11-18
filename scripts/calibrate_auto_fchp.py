@@ -309,7 +309,7 @@ def main():
                         "baseline_gmprocess": np.log(df["fchp_gmp"].to_numpy(float)),
                         "baseline_gui": np.log(df["fchp_gui"].to_numpy(float)),
                         "gui_grid": predict(df, GUI, "auto", lng)})
-    report = {"n_traces": int(len(df)), "n_dropped_incomplete_curves": int(n_all - len(df)),
+    report = {"generation": gm.data_generation(df), "n_traces": int(len(df)), "n_dropped_incomplete_curves": int(n_all - len(df)),
               "n_events": int(df["event_id"].nunique()), "folds": args.folds, "families": families,
               "grid": {"t_poly": grid_t_poly, "t_pre": grid_t_pre, "cap": grid_cap},
               "fraction_analyst_below_grid": float(np.mean(np.exp(y) < ft.FCHP_GRID[0])),

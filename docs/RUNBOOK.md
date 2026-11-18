@@ -310,8 +310,11 @@ data), as the training data did; otherwise those predictors are missing and the 
 ### Bundling the trained models with the package
 
 The trained models exist only in the training output folders on Stampede3, and `$SCRATCH`
-is purged. To ship them, export the chosen folders into `gmcr/trained/` (version-independent
-JSON + LightGBM text files, checked against `models.joblib`), then commit:
+is purged. To ship them, export the chosen folders into `gmcr/trained/<generation>/` (version-independent
+JSON + LightGBM text files, checked against `models.joblib`), then commit. The generation
+(`gmcr/generations.py`: the gmprocess version the models go with) comes from the training report,
+which records the generation of the features; training runs from before generations existed are
+`gmprocess-1.3`, and `--generation` overrides it:
 
 ```bash
 cd $WORK/gm_corner_review && git pull
@@ -321,7 +324,7 @@ git add gmcr/trained && git commit -m "Bundle trained models" && git push
 ```
 
 Users then run `python scripts/predict.py fchp --workspaces ... --out ...` (or `--list-models`)
-without any files from Stampede3.
+without any files from Stampede3; `fchp` is the bundled model of the workspaces' generation.
 
 ## 4. Keep the results
 

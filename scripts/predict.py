@@ -15,6 +15,15 @@ the output of scripts/export_models.py, or an output folder of one of the traini
   train_accept_model.py                 probability that an analyst would accept the record
   calibrate_auto_fchp.py                high-pass corner (Hz) from re-tuned auto_fchp settings
 
+Model generations (gmcr.generations): models are trained on workspaces of one gmprocess version
+and apply only to records processed with that version (gmprocess-1.3, gmprocess-2.9, ...). A
+bundled model given by name alone (e.g. accept) is the one of the records' generation, which
+comes from the workspaces' gmprocess version (or the features table's generation column; tables
+extracted before generations existed are gmprocess-1.3); "gmprocess-1.3/accept" names one
+explicitly, and --generation sets the records' generation. A model of another generation than
+the records is refused unless --allow-generation-mismatch is given (its predictions are then
+biased: e.g. gmprocess 2.9's low-pass corners are about 30% higher than 1.3's).
+
 By default the model the folder's report.json recommends is applied ("recommendation" for
 the trained models; for an auto_fchp calibration, the calibrated variant with the lowest
 cross-validated RMSE). --model picks another one, e.g. --model simple. The models are the
@@ -56,26 +65,58 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gmcr import modeling as gm  # noqa: E402
 
 ID_COLUMNS = ["trace_key", "event_id", "trace_id", "network", "station", "channel",
-              "auto_failed", "fchp_gmp", "fchp_gui", "fclp_gmp"]
+              "gmprocess_version", "auto_failed", "fchp_gmp", "fchp_gui", "fclp_gmp"]
 
 
 # ------------------------------------------------------------------------------ input
 
 
-def features_from_workspaces(paths, fchp_variants=False):
-    """Extract features from workspace files into a temporary folder; return the
-    traces table merged with the curves (as gmcr.modeling.load_traces does)."""
-    from gmcr.extract import process_file
-
+def workspace_files(paths):
     files = []
     for p in map(Path, paths):
         files += sorted(p.glob("*.h5")) if p.is_dir() else [p]
     if not files:
         sys.exit("no .h5 files given")
+    return files
+
+
+def workspaces_generation(paths):
+    """The model generation of workspace files, from their gmprocess version (None if no
+    generation covers it); they must all be of one generation."""
+    from gmcr import generations
+    from gmcr.asdf_reader import Workspace
+
+    found = {}
+    for f in workspace_files(paths):
+        with Workspace(f) as ws:
+            version = ws.gmprocess_version()
+        found.setdefault(generations.for_gmprocess(version), set()).add(str(version))
+    if len(found) > 1:
+        sys.exit("the workspaces come from several gmprocess versions ("
+                 + "; ".join(f"{g}: {', '.join(sorted(v))}" for g, v in found.items())
+                 + "); predict each generation's records separately")
+    gen, versions = next(iter(found.items()))
+    if gen is None:
+        sys.exit(f"no model generation covers gmprocess {', '.join(sorted(versions))}; give "
+                 "--generation to treat the records as one")
+    return gen
+
+
+def features_from_workspaces(paths, fchp_variants=False, generation=None):
+    """Extract features from workspace files into a temporary folder; return the
+    traces table merged with the curves (as gmcr.modeling.load_traces does). generation: the
+    model generation whose auto_fchp to use (default: from each workspace's gmprocess version)."""
+    from gmcr.extract import process_file
+
+    files = workspace_files(paths)
     with tempfile.TemporaryDirectory() as tmp:
         for f in files:
-            status = process_file(f, tmp, fchp_variants=fchp_variants)
+            status = process_file(f, tmp, fchp_variants=fchp_variants, generation=generation)
             print(f"{status:8s} {f}", flush=True)
+            if status == "error":
+                for log in Path(tmp, "logs").glob(f"*__{f.stem}.json"):
+                    err = json.loads(log.read_text()).get("file_error", "").strip()
+                    print("  " + (err.splitlines()[-1] if err else "?"), flush=True)
         tr = sorted(Path(tmp, "traces").glob("*.parquet"))
         if not tr:
             sys.exit("no traces extracted (see the errors above)")
@@ -179,8 +220,22 @@ def predict_auto(df, report, name):
 # --------------------------------------------------------------------------- main
 
 
-def resolve_model_dir(arg):
-    """A model folder path, or the name of a model bundled with the package (gmcr/trained/)."""
+def check_model_arg(arg):
+    """Stop early (before any extraction) if arg is neither a folder nor a bundled model name."""
+    from gmcr import portable
+
+    if Path(arg).is_dir():
+        return
+    bundled = portable.bundled_dirs()
+    if arg in bundled or any(k.split("/", 1)[1] == arg for k in bundled):
+        return
+    names = ", ".join(bundled) or "none"
+    sys.exit(f"{arg}: neither a model folder nor a bundled model (bundled: {names})")
+
+
+def resolve_model_dir(arg, generation):
+    """A model folder path, or a bundled model (gmcr/trained/<generation>/<name>/): by its full name
+    "<generation>/<name>", or by <name> alone for the records' generation."""
     from gmcr import portable
 
     path = Path(arg)
@@ -189,19 +244,43 @@ def resolve_model_dir(arg):
     bundled = portable.bundled_dirs()
     if arg in bundled:
         return bundled[arg]
-    names = ", ".join(bundled) or "none"
-    sys.exit(f"{arg}: neither a model folder nor a bundled model (bundled: {names})")
+    own = portable.bundled_dirs(generation)
+    if arg in own:
+        return own[arg]
+    others = [k for k in bundled if k.split("/", 1)[1] == arg]
+    sys.exit(f"no bundled {arg} model for {generation} records (bundled: {', '.join(others) or 'none'}). "
+             "Models of another gmprocess version give biased predictions; to use one anyway, name "
+             "it in full and add --allow-generation-mismatch.")
+
+
+def check_generation(model_dir, data_gen, allow):
+    """The model's generation; stops if it isn't the records' (unless allow)."""
+    from gmcr import generations, portable
+
+    model_gen = portable.model_generation(model_dir)
+    print(f"records: {generations.describe(data_gen)}; model: {model_gen}", flush=True)
+    if model_gen != data_gen:
+        msg = (f"the model was trained on {model_gen} workspaces but the records are {data_gen}: "
+               "its predictions are biased for these records")
+        if not allow:
+            sys.exit(f"{msg}. Use a {data_gen} model (--list-models), or add "
+                     "--allow-generation-mismatch to apply it anyway.")
+        print(f"WARNING: {msg}.", flush=True)
+    return model_gen
 
 
 def list_models():
-    from gmcr import portable
+    from gmcr import generations, portable
 
     bundled = portable.bundled_dirs()
     if not bundled:
         print("no models are bundled with this copy of gmcr (gmcr/trained/ is empty); give the path "
               "of a model folder instead (see scripts/export_models.py)")
         return
-    print(f"models bundled with gmcr ({portable.TRAINED}):")
+    print(f"models bundled with gmcr ({portable.TRAINED}), as <generation>/<name>:")
+    for gen in generations.GENERATIONS:
+        if not any(k.startswith(gen + "/") for k in bundled):
+            print(f"  {generations.describe(gen)}: none yet")
     for name, path in bundled.items():
         meta = json.loads((path / "model.json").read_text())
         report = json.loads((path / "report.json").read_text())
@@ -210,7 +289,7 @@ def list_models():
         m = report.get("metrics", {}).get(rec, {})
         score = (f"cross-validated RMSE {m['rmse_ln']:.3f} (ln)" if "rmse_ln" in m else
                  f"cross-validated AUC {m['auc']:.3f}" if "auc" in m else "")
-        print(f"  {name:22s} {meta['kind']:9s} default model {rec:22s} {score}; "
+        print(f"  {name:22s} {meta['kind']:6s} default model {rec:20s} {score}; "
               f"{report.get('n_traces', '?')} traces, {report.get('n_events', '?')} events; "
               f"exported {prov.get('exported_utc', '?')[:10]}")
 
@@ -255,6 +334,11 @@ def main():
     p.add_argument("--flag-share", type=int, choices=[50, 80, 90], default=None,
                    help="accept models: flag records with the threshold that flagged this percentage "
                         "of the analysts' rejections in cross-validation")
+    p.add_argument("--generation", default=None,
+                   help="model generation of the records (default: from the workspaces' gmprocess "
+                        "version, or the features table)")
+    p.add_argument("--allow-generation-mismatch", action="store_true",
+                   help="apply a model of another generation than the records (biased predictions)")
     p.add_argument("--fchp-variants", action="store_true",
                    help="with --workspaces: also extract the polyvar_* curves (needed by auto_fchp "
                         "calibrations that selected one of them)")
@@ -266,17 +350,41 @@ def main():
         p.error("give a model (name or folder), --features or --workspaces, and --out "
                 "(or --list-models)")
 
-    kind, report, bundle = model_kind(resolve_model_dir(args.model_dir))
-    name = args.model or default_model(kind, report)
-    print(f"model: {kind} / {name}"
-          + ("" if args.model else " (recommended)"), flush=True)
+    from gmcr import generations
 
+    if args.generation:
+        try:
+            generations.get(args.generation)
+        except ValueError as exc:
+            sys.exit(str(exc))
+    check_model_arg(args.model_dir)
+
+    # the records' generation, then the model, before any (slow) extraction
     if args.features:
         df = gm.load_traces(args.features, curves=True)
+        try:
+            data_gen = gm.data_generation(df)
+        except ValueError as exc:
+            sys.exit(f"{exc}; predict each generation's records separately")
+        if args.generation and "generation" in df and data_gen != args.generation:
+            sys.exit(f"--generation {args.generation}, but the features were extracted as {data_gen}")
     else:
-        df = features_from_workspaces(args.workspaces, args.fchp_variants)
+        data_gen = args.generation or workspaces_generation(args.workspaces)
+    data_gen = args.generation or data_gen
+    model_dir = resolve_model_dir(args.model_dir, data_gen)
+    model_gen = check_generation(model_dir, data_gen, args.allow_generation_mismatch)
+    if args.workspaces:
+        df = features_from_workspaces(args.workspaces, args.fchp_variants, data_gen)
+
+    kind, report, bundle = model_kind(model_dir)
+    name = args.model or default_model(kind, report)
+    print(f"model: {model_gen}/{kind} / {name}"
+          + ("" if args.model else " (recommended)"), flush=True)
+
     out = df[[c for c in ID_COLUMNS if c in df]].copy()
     out.insert(0, "model", f"{kind}/{name}")
+    out.insert(1, "model_generation", model_gen)
+    out.insert(2, "records_generation", data_gen)
 
     if kind == "auto_fchp":
         ln, params = predict_auto(df, report, name)

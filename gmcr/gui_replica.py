@@ -3,14 +3,21 @@
 waveforms the analyst actually looked at.
 
 Verified against nc73819746.h5: `gui_fchp` reproduces the GUI's automatic
-high-pass corner to 6 decimals for traces where the analyst adopted it.
+high-pass corner to 6 decimals for traces where the analyst adopted it (with auto_fchp 3.0.3).
+
+The auto_fchp functions take the ucla_geotech_tools version of auto_fchp to use (AUTO_FCHP): 3.0.3,
+the GUI's, or 3.1.0, used by the gmprocess-2.9 model generation (gmcr.generations).
 """
 
 import warnings
 
 import numpy as np
 import scipy as sp
-from gmcr import auto_fchp as af  # ucla_geotech_tools 3.0.3, as in the review GUI
+from gmcr import auto_fchp_303, auto_fchp_310
+
+# ucla_geotech_tools versions of auto_fchp; 3.0.3 is the review GUI's
+AUTO_FCHP = {"3.0.3": auto_fchp_303, "3.1.0": auto_fchp_310}
+GUI_AUTO_FCHP = "3.0.3"
 
 # Settings hard-coded in the GUI's update_plots() call to af.get_fchp
 GUI_FCHP_KW = dict(
@@ -90,19 +97,36 @@ def disp_ratio_time(nt):
     return nt - 2 if nt > 2 else nt
 
 
-def gui_fchp(acc_u, dt, nt, **overrides):
+def _af(version):
+    if version not in AUTO_FCHP:
+        raise ValueError(f"no auto_fchp {version!r}; gmcr has {', '.join(AUTO_FCHP)}")
+    return AUTO_FCHP[version]
+
+
+def gui_fchp(acc_u, dt, nt, auto_fchp=GUI_AUTO_FCHP, **overrides):
+    """The automatic high-pass corner (Hz) with the GUI's settings. Raises ValueError when auto_fchp
+    can't solve (e.g. a residual is NaN at fchp_min)."""
     kw = dict(GUI_FCHP_KW, disp_ratio_time=disp_ratio_time(nt))
     kw.update(overrides)
-    return float(af.get_fchp(dt=dt, acc=acc_u, **kw))
+    try:
+        fchp = _af(auto_fchp).get_fchp(dt=dt, acc=acc_u, **kw)
+    except UnboundLocalError as exc:  # 3.0.3 leaves fchp unset when a residual is NaN
+        raise ValueError(f"auto_fchp {auto_fchp} found no corner (NaN residual)") from exc
+    if fchp is None:
+        raise ValueError(f"auto_fchp {auto_fchp} returned nothing")
+    return float(fchp)
 
 
-def _fdisp(acc, dt, tukey_alpha):
-    """Same pre-processing as af.get_fchp."""
+def _fdisp(acc, dt, tukey_alpha, auto_fchp=GUI_AUTO_FCHP):
+    """Same pre-processing as get_fchp of that auto_fchp version."""
     if len(acc) % 2 != 0:
         acc = acc[:-1]
     window = sp.signal.windows.tukey(len(acc), alpha=tukey_alpha)
     acc = window * (acc - np.average(acc, weights=window))
-    time = np.linspace(0, dt * len(acc), len(acc))
+    if auto_fchp == "3.0.3":
+        time = np.linspace(0, dt * len(acc), len(acc))  # 3.0.3's time axis (step slightly > dt)
+    else:
+        time = np.arange(len(acc)) * dt
     freq = np.fft.rfftfreq(len(acc), dt)
     facc = np.fft.rfft(acc)
     fdisp = np.zeros(len(facc), dtype=complex)
@@ -110,13 +134,14 @@ def _fdisp(acc, dt, tukey_alpha):
     return fdisp, time, freq
 
 
-def displacement_ratio_curves(acc_u, dt, nt, fchp_values):
+def displacement_ratio_curves(acc_u, dt, nt, fchp_values, auto_fchp=GUI_AUTO_FCHP):
     """Polynomial-fit ratio and pre-event displacement ratio vs. fchp.
 
     These are the two criteria inside get_fchp (targets 0.02 and 0.05 in the
     GUI), evaluated on a grid so a model can re-learn the targets.
     """
-    fdisp, time, freq = _fdisp(acc_u, dt, GUI_FCHP_KW["tukey_alpha"])
+    af = _af(auto_fchp)
+    fdisp, time, freq = _fdisp(acc_u, dt, GUI_FCHP_KW["tukey_alpha"], auto_fchp)
     t_pre = disp_ratio_time(nt)
     poly, pre = [], []
     for fc in np.atleast_1d(fchp_values):

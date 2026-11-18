@@ -80,8 +80,14 @@ The bundled models have the names of the training runs:
 | `accept`, ... | probability that an analyst would accept the record |
 | an `auto_fchp` calibration | high-pass corner from re-tuned `auto_fchp` settings |
 
+Bundled models are listed as `<generation>/<name>`, e.g. `gmprocess-1.3/fchp`: each generation goes
+with the gmprocess version of the workspaces it was trained on (`gmcr/generations.py`). Give the name
+alone (`fchp`) and `predict.py` uses the model of your records' generation, from the workspaces'
+gmprocess version; it refuses a model of another generation, whose predictions would be biased,
+unless you add `--allow-generation-mismatch`.
+
 Names ending in `_noevent` were trained without magnitude and depth. Each model's folder in
-`gmcr/trained/` has its training report (`report.md`: performance, recommendation,
+`gmcr/trained/<generation>/` has its training report (`report.md`: performance, recommendation,
 coefficients) and `provenance.json` (when and from what it was exported).
 
 A model can also be given as a folder (`--model-dir`, or as the first argument of
@@ -142,6 +148,9 @@ are done first and `--features` is used.
 | `models.joblib could not be loaded` or a version warning (training output folders only) | use the bundled or exported models instead, or the conda environment from `environment.yml` (the versions used on Stampede3) |
 | `No models are bundled ... yet` | `git pull` to get them once they are committed; until then the example uses demo models |
 | `not bundled: NAME` | use a name from `python scripts/predict.py --list-models` |
+| `no bundled NAME model for gmprocess-2.9 records` | no models of your workspaces' gmprocess version are bundled yet; `git pull` once they are, or (biased) name one in full with `--allow-generation-mismatch` |
+| `the model was trained on gmprocess-1.3 workspaces but the records are ...` | use the model of your records' generation (`--list-models`) |
+| `no model generation covers gmprocess X` | the workspaces come from a gmprocess version gmcr has no models for; `--generation` treats them as one (at your own risk) |
 | `the default model is LightGBM` | `pip install lightgbm` |
 | `the polyvar_... curves are missing` | an `auto_fchp` calibration chose a variant curve family: add `--fchp-variants` (with `--workspaces`) |
 | `no traces extracted` | the `.h5` file is not a gmprocess workspace, or is corrupt; the lines above it give the error |

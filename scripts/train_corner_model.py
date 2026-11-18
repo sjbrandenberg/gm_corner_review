@@ -294,7 +294,8 @@ def main():
     groups = oof["event_id"].to_numpy()
     candidates = ("baseline_gmprocess", "baseline_gui") + SIMPLE_FAMILY + ML_FAMILY
     models = [c for c in candidates if c in oof and oof[c].notna().any()]
-    report = {"target": args.target, "n_traces": int(len(df)), "n_events": int(n_events),
+    report = {"target": args.target, "generation": gm.data_generation(df),
+              "n_traces": int(len(df)), "n_events": int(n_events),
               "folds": args.folds, "curves": args.curves, "dropped": dropped,
               "metrics": {}, "comparisons": {}}
     for m in models:

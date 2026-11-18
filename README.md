@@ -52,8 +52,9 @@ scripts/calibrate_auto_fchp.py  calibrate auto_fchp's targets, fchp_max, order, 
 
 | group | columns |
 |---|---|
+| provenance | `gmprocess_version` of the workspace, model `generation` (whose auto_fchp computed `fchp_gui` and the ratios) |
 | labels | `y_reviewed`, `y_accepted` (NaN unless reviewed), `y_fchp`, `y_fclp` (NaN when `y_fclp_none`, i.e. GUI lowpass box unchecked), `y_fclp_raw`, `y_fchp_source` (gmprocess / gui_auto / manual), `review_username`, `review_timestamp` |
-| automatic | `fchp_gmp`, `fclp_gmp`, `fchp_applied`, `fchp_gui`, `gui_at_cap` (GUI fchp hit its 1.2 Hz cap), `auto_failed`, `auto_fail_module/reason`, `colocated`, `selected` |
+| automatic | `fchp_gmp`, `fclp_gmp`, `fchp_applied`, `fchp_gui` (NaN with `gui_error` when auto_fchp finds no corner), `gui_at_cap` (GUI fchp hit its 1.2 Hz cap), `auto_failed`, `auto_fail_module/reason`, `colocated`, `selected` |
 | metadata | magnitude, depth, `repi_km`, `rhypo_km`, instrument/component codes, sampling rate |
 | signal quality | SNR band edges at 2/3/5/10, SNR at fixed frequencies, `fit_*` (Brune fit), clipping prob., zero crossings |
 | displacement | `poly_ratio_at_gmp/gui`, `pre_ratio_at_gmp/gui` (the two get_fchp criteria) |
@@ -149,14 +150,22 @@ folder with `--variants-dir` (use `--jobs` to search the families in parallel).
 
 ## Notes
 
-* `auto_fchp`: the review GUI computed its automatic corner with ucla_geotech_tools 3.0.3, and the
-  training features were extracted with it. gmcr keeps that code as `gmcr/auto_fchp.py` (unchanged)
-  instead of depending on ucla_geotech_tools, so `fchp_gui` is computed the same way for training and
-  for new records whatever ucla_geotech_tools is installed. 3.1.0 differs: it builds the time vector
-  with `arange`, fits the polynomial in normalized time, and keeps the lower bound when an objective
-  is met there but not at `fchp_max`, where 3.0.3 root-finds a higher corner.
-  `scripts/check_ugt_versions.py` estimates, from the training tables, how often that last case
-  occurs and how much it would move the predictions. gmcr computes PSA itself (3.0.3's
+* Model generations (`gmcr/generations.py`): the predictors describe gmprocess's own decisions, so
+  models go with the gmprocess version of the workspaces they were trained on. gmprocess 2.9 moves the
+  SNR corners (on nc73819746, `fclp_gmp` is about 30% higher than 1.3's for the same raw data), so the
+  1.3 models are biased on 2.9 workspaces. Bundled models are in `gmcr/trained/<generation>/<name>/`:
+  `gmprocess-1.3` (the NGA-West3 review workspaces) and `gmprocess-2.9` (the training events
+  reprocessed with gmprocess 2.9; trained later). Extraction picks the generation from the workspace's
+  gmprocess version and records it (`generation` column); `predict.py accept ...` uses the model of the
+  records' generation and refuses one of another generation unless `--allow-generation-mismatch`.
+* `auto_fchp`: gmcr keeps its own copies of ucla_geotech_tools' auto_fchp instead of depending on the
+  package, one per generation: `gmcr/auto_fchp_303.py` (3.0.3, as the review GUI ran it; gmprocess-1.3)
+  and `gmcr/auto_fchp_310.py` (3.1.0; gmprocess-2.9). 3.1.0 builds the time vector with `arange`, fits the
+  polynomial in normalized time, and keeps the lower bound when an objective is met there but not at
+  `fchp_max`, where 3.0.3 root-finds a higher corner. On nc73819746 the two agree to 0.2% on every
+  trace; `scripts/check_ugt_versions.py` estimates, from the training tables, how often the lower-bound
+  case occurs. Never edit these files: a generation's models were trained on features extracted with
+  its copy. gmcr computes PSA itself (3.0.3's
   `response_spectrum.get_ARS` has a missing `*` bug).
 * Analysts never reviewed auto-rejected records, so accept/reject labels can only
   tighten the existing criteria.

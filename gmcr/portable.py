@@ -4,7 +4,8 @@ models.joblib (written by the training scripts) is a Python pickle: it may not l
 other versions of scikit-learn, LightGBM, or numpy. For distribution, export_model_dir()
 writes the same models as
 
-    model.json        kind, predictors, and every simple model as plain numbers:
+    model.json        kind, model generation (gmcr.generations), predictors, and every simple
+                      model as plain numbers:
                       log-linear models (training medians, standardization, coefficients) and
                       logistic models (imputer medians, scaler mean/scale, coefficients)
     lightgbm_*.txt    LightGBM models in LightGBM's own text format (best iteration only),
@@ -19,7 +20,7 @@ load_model_dir() reads such a folder back into the same structure as models.jobl
 with "models", "features", ...), with small classes that have the predict / predict_proba
 methods predict.py uses, so the rest of predict.py works unchanged.
 
-The bundled models of the package are in gmcr/trained/<name>/ (bundled_dirs()).
+The bundled models of the package are in gmcr/trained/<generation>/<name>/ (bundled_dirs()).
 """
 
 import json
@@ -31,6 +32,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from . import generations
 
 FORMAT_VERSION = 1
 TRAINED = Path(__file__).resolve().parent / "trained"
@@ -183,11 +186,15 @@ def _versions():
     return out
 
 
-def export_model_dir(src, dst, only_recommended=False, note=""):
+def export_model_dir(src, dst, only_recommended=False, note="", generation=None):
     """Export a training/calibration output folder `src` to a portable folder `dst`.
+    generation: the model generation (default: the one in the training report, which training
+    runs from before generations existed don't have: those are gmprocess-1.3).
     Returns the model.json content."""
     src, dst = Path(src), Path(dst)
     report = json.loads((src / "report.json").read_text())
+    generation = generation or report.get("generation") or generations.LEGACY
+    generations.get(generation)
     if dst.exists():
         shutil.rmtree(dst)
     dst.mkdir(parents=True)
@@ -195,7 +202,7 @@ def export_model_dir(src, dst, only_recommended=False, note=""):
         if (src / f).exists():
             shutil.copy2(src / f, dst / f)
     if "selected" in report and not (src / "models.joblib").exists():
-        meta = {"format_version": FORMAT_VERSION, "kind": "auto_fchp",
+        meta = {"format_version": FORMAT_VERSION, "kind": "auto_fchp", "generation": generation,
                 "settings": {m: report["selected"][m]["all_data"] for m in report["selected"]}}
     else:
         import joblib
@@ -208,7 +215,8 @@ def export_model_dir(src, dst, only_recommended=False, note=""):
         rec = report.get("recommendation")
         if only_recommended:
             keys = [k for k in NEEDS.get((kind, rec), keys) if k in bundle["models"]]
-        meta = {"format_version": FORMAT_VERSION, "kind": kind, "recommendation": rec,
+        meta = {"format_version": FORMAT_VERSION, "kind": kind, "generation": generation,
+                "recommendation": rec,
                 "features": list(bundle["features"]), "curves": bool(bundle.get("curves")),
                 "dropped": bundle.get("dropped", report.get("dropped", [])),
                 "simple_features": bundle.get("simple_features"),
@@ -229,6 +237,19 @@ def export_model_dir(src, dst, only_recommended=False, note=""):
 
 def is_portable(model_dir):
     return (Path(model_dir) / "model.json").exists()
+
+
+def model_generation(model_dir):
+    """The model generation of a model folder (exported, or a training output): model.json's, else
+    the training report's; folders from before generations existed are gmprocess-1.3."""
+    model_dir = Path(model_dir)
+    for name in ("model.json", "report.json"):
+        f = model_dir / name
+        if f.exists():
+            gen = json.loads(f.read_text()).get("generation")
+            if gen:
+                return gen
+    return generations.LEGACY
 
 
 def load_model_dir(model_dir):
@@ -265,8 +286,16 @@ def load_model_dir(model_dir):
     return meta["kind"], report, bundle
 
 
-def bundled_dirs():
-    """{name: folder} of the models bundled with the package (gmcr/trained/<name>/)."""
+def bundled_dirs(generation=None):
+    """{"<generation>/<name>": folder} of the models bundled with the package
+    (gmcr/trained/<generation>/<name>/), or {name: folder} of one generation's."""
     if not TRAINED.exists():
         return {}
-    return {p.name: p for p in sorted(TRAINED.iterdir()) if (p / "model.json").exists()}
+    out = {}
+    for gdir in sorted(p for p in TRAINED.iterdir() if p.is_dir()):
+        if generation is not None and gdir.name != generation:
+            continue
+        for p in sorted(gdir.iterdir()):
+            if (p / "model.json").exists():
+                out[p.name if generation else f"{gdir.name}/{p.name}"] = p
+    return out

@@ -142,7 +142,7 @@ def main():
             oof.loc[te, "simple"] = y[tr].mean()
 
     models = [m for m in ("baseline", "simple", "lightgbm") if oof[m].notna().any()]
-    report = {"n_traces": int(len(df)), "n_events": int(n_events), "folds": args.folds, "dropped": dropped,
+    report = {"generation": gm.data_generation(df), "n_traces": int(len(df)), "n_events": int(n_events), "folds": args.folds, "dropped": dropped,
               "accept_rate": float(y.mean()), "metrics": {}, "operating_points": {}, "comparisons": {}}
     for m in models:
         report["metrics"][m] = gm.classification_metrics(y, oof[m])

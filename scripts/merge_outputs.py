@@ -15,6 +15,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gmcr import features as ft  # noqa: E402
 from gmcr import fchp_variants as fv  # noqa: E402
+from gmcr import tables  # noqa: E402
 
 
 def main(feat_dir):
@@ -23,12 +24,10 @@ def main(feat_dir):
     if not tr_files:
         sys.exit(f"no outputs in {feat / 'traces'}")
     traces = pd.concat((pd.read_parquet(f) for f in tr_files), ignore_index=True)
-    # A column can be typed differently in different files (e.g. bool in one, text or
-    # empty in another); make every non-numeric column text so parquet accepts it.
-    for c in traces.columns:
-        if traces[c].dtype == object:
-            traces[c] = traces[c].map(lambda v: None if v is None or (isinstance(v, float) and v != v)
-                                      else str(v))
+    # A column can be typed differently in different files (e.g. bool in one, text or empty in
+    # another); flags become nullable booleans (also ones older extractions wrote as text), and
+    # other non-numeric columns text.
+    tables.parquet_safe(traces)
     curves = pd.concat((pd.read_parquet(feat / "curves" / f.name) for f in tr_files
                         if (feat / "curves" / f.name).exists()), ignore_index=True)
     traces.to_parquet(feat / "traces_all.parquet", index=False)
@@ -61,6 +60,8 @@ def main(feat_dir):
         "gui_at_cap_frac": float(rev["gui_at_cap"].astype(float).mean()) if "gui_at_cap" in rev else None,
         "fclp_none_frac": float(rev["y_fclp_none"].astype(float).mean()) if "y_fclp_none" in rev else None,
         "gmprocess_versions": pd.Series([lg.get("gmprocess_version") for lg in logs]).value_counts().to_dict(),
+        # model generation of each file (gmcr.generations); none recorded = extracted before generations
+        "generations": pd.Series([lg.get("generation", "none recorded") for lg in logs]).value_counts().to_dict(),
         "review_usernames": rev["review_username"].value_counts().head(20).to_dict() if "review_username" in rev else {},
         "extract_seconds_total": round(sum(lg.get("seconds", 0) for lg in logs), 1),
     }

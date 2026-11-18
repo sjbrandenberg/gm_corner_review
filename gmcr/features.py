@@ -101,9 +101,12 @@ def psa_shape_metrics(T, psa, pga):
     return out
 
 
-def trace_features(ws, trace_id, compute_psa=True, fchp_variants=False):
+def trace_features(ws, trace_id, compute_psa=True, fchp_variants=False,
+                   auto_fchp=gr.GUI_AUTO_FCHP):
     """Return (scalars, curves) for one processed trace in workspace `ws`.
 
+    auto_fchp: the ucla_geotech_tools version of auto_fchp for fchp_gui and the displacement-ratio
+    curves (gmcr.generations.auto_fchp_version of the model generation).
     fchp_variants=True adds the polynomial-fit ratio curves for other orders and fit windows
     (gmcr.fchp_variants), for calibrating auto_fchp."""
     import obspy
@@ -219,13 +222,18 @@ def trace_features(ws, trace_id, compute_psa=True, fchp_variants=False):
 
     acc_u, dt, nt = gr.gui_unprocessed_acc(tr_u, tr_p, inv, prov)
     rec["preevent_noise_s"] = nt
-    rec["fchp_gui"] = gr.gui_fchp(acc_u, dt, nt)
-    rec["gui_at_cap"] = rec["fchp_gui"] >= GUI_FCHP_CAP * (1 - 1e-6)
+    try:
+        rec["fchp_gui"] = gr.gui_fchp(acc_u, dt, nt, auto_fchp=auto_fchp)
+    except ValueError as exc:  # e.g. NaN residual at fchp_min: no automatic corner
+        rec["fchp_gui"] = np.nan
+        rec["gui_error"] = str(exc)
+    rec["gui_at_cap"] = (rec["fchp_gui"] >= GUI_FCHP_CAP * (1 - 1e-6)
+                         if np.isfinite(rec["fchp_gui"]) else np.nan)
     rec["pga_unproc_g"] = float(np.max(np.abs(acc_u)) / 9.81)
 
     trial = np.concatenate([FCHP_GRID, [rec["fchp_gmp"], rec["fchp_gui"]]])
     trial = np.where(np.isfinite(trial) & (trial > 0), trial, FCHP_GRID[0])
-    poly, pre = gr.displacement_ratio_curves(acc_u, dt, nt, trial)
+    poly, pre = gr.displacement_ratio_curves(acc_u, dt, nt, trial, auto_fchp=auto_fchp)
     curves["poly_ratio"] = poly[:len(FCHP_GRID)].astype(np.float32)
     curves["pre_disp_ratio"] = pre[:len(FCHP_GRID)].astype(np.float32)
     rec["poly_ratio_at_gmp"], rec["poly_ratio_at_gui"] = poly[-2], poly[-1]
