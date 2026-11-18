@@ -149,13 +149,14 @@ folder with `--variants-dir` (use `--jobs` to search the families in parallel).
 
 ## Notes
 
-* `ucla_geotech_tools`: the review GUI used 3.0.3, whose `auto_fchp` gmcr reproduces exactly, so
-  `environment.yml` (training/extraction) pins 3.0.3. The package itself accepts any 3.x (>= 3.0.3),
-  so it installs next to newer versions. 3.1.0 fits the polynomial in normalized time and builds the
-  time vector with `arange`; on nc73819746 it gives the same fchp on 61 of 63 traces and differs by
-  at most 0.16% (CI.FDR BHZ/HHZ). That is negligible for predictions, but extraction with 3.1.0 would
-  label such adopted GUI values as `manual` in `y_fchp_source`; `gmcr.extract` warns when the
-  installed version isn't 3.0.3 and records it in each file's log. gmcr computes PSA itself
-  (3.0.3's `response_spectrum.get_ARS` has a missing `*` bug).
+* `auto_fchp`: the review GUI computed its automatic corner with ucla_geotech_tools 3.0.3, and the
+  training features were extracted with it. gmcr keeps that code as `gmcr/auto_fchp.py` (unchanged)
+  instead of depending on ucla_geotech_tools, so `fchp_gui` is computed the same way for training and
+  for new records whatever ucla_geotech_tools is installed. 3.1.0 differs: it builds the time vector
+  with `arange`, fits the polynomial in normalized time, and keeps the lower bound when an objective
+  is met there but not at `fchp_max`, where 3.0.3 root-finds a higher corner.
+  `scripts/check_ugt_versions.py` estimates, from the training tables, how often that last case
+  occurs and how much it would move the predictions. gmcr computes PSA itself (3.0.3's
+  `response_spectrum.get_ARS` has a missing `*` bug).
 * Analysts never reviewed auto-rejected records, so accept/reject labels can only
   tighten the existing criteria.

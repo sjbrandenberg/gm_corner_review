@@ -10,7 +10,7 @@ import warnings
 
 import numpy as np
 import scipy as sp
-import ucla_geotech_tools.auto_fchp as af
+from gmcr import auto_fchp as af  # ucla_geotech_tools 3.0.3, as in the review GUI
 
 # Settings hard-coded in the GUI's update_plots() call to af.get_fchp
 GUI_FCHP_KW = dict(

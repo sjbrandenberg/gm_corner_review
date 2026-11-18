@@ -19,7 +19,6 @@ import shutil
 import sys
 import time
 import traceback
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import numpy as np
@@ -77,14 +76,8 @@ def _delete_source(path):
         pass
 
 
-GUI_UGT_VERSION = "3.0.3"  # ucla_geotech_tools version of the review GUI
-
-
-def ugt_version():
-    try:
-        return version("ucla_geotech_tools")
-    except PackageNotFoundError:
-        return "unknown"
+# fchp_gui comes from gmcr.auto_fchp, ucla_geotech_tools 3.0.3's code as the review GUI ran it
+AUTO_FCHP_SOURCE = "gmcr.auto_fchp (ucla_geotech_tools 3.0.3)"
 
 
 def process_file(path, outdir, reviewed_only=False, compute_psa=True, label=None,
@@ -124,7 +117,7 @@ def process_file(path, outdir, reviewed_only=False, compute_psa=True, label=None
         with Workspace(read_path, label=label) as ws:
             log.update(event_id=ws.event_id, label=ws.label,
                        gmprocess_version=ws.gmprocess_version(),
-                       ucla_geotech_tools_version=ugt_version())
+                       auto_fchp=AUTO_FCHP_SOURCE)
             for tid in ws.processed_trace_ids():
                 if reviewed_only:
                     rv = ws.review(tid)
@@ -198,11 +191,6 @@ def main(argv=None):
                         "(for staged copies only)")
     a = p.parse_args(argv)
 
-    if ugt_version() != GUI_UGT_VERSION:
-        print(f"WARNING: ucla_geotech_tools {ugt_version()} is installed; the review GUI used "
-              f"{GUI_UGT_VERSION}. fchp_gui can differ slightly from the GUI's value, and y_fchp_source "
-              f"then calls some adopted GUI values 'manual'. Use {GUI_UGT_VERSION} to extract training "
-              f"data (environment.yml); any 3.x is fine for predict.py.", flush=True)
 
     files = a.files
     if a.list:

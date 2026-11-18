@@ -371,16 +371,14 @@ gmcr_results/models/fchp/oof_predictions.parquet
 ```bash
 git clone https://github.com/sjbrandenberg/gm_corner_review.git
 cd gm_corner_review
-pip install --user numpy scipy pandas pyarrow ucla_geotech_tools   # not in the gmcr env (see below)
+pip install --user numpy scipy pandas pyarrow   # not in the gmcr env (see below)
 R=/path/to/gmcr_results        # e.g. ~/MyProjects/PRJ-XXXX/gmcr_results on DesignSafe JupyterHub
 python scripts/calibrate_auto_fchp.py $R/features --out $R/models/auto_fchp     --compare-oof $R/models/fchp/oof_predictions.parquet
 ```
 
-The `pip install` is for a Python without the gmcr env, such as DesignSafe JupyterHub; any
-ucla_geotech_tools version works for the calibration. On Stampede3, activate the gmcr env instead
-(`gmcr`) and skip the `pip install`: it would upgrade ucla_geotech_tools, and the extraction needs
-3.0.3 to reproduce the GUI. The script imports gmcr from the cloned folder, so after a `git pull` it
-runs without rebuilding the env.
+The `pip install` is for a Python without the gmcr env, such as DesignSafe JupyterHub. On
+Stampede3, activate the gmcr env instead (`gmcr`) and skip the `pip install`. The script imports gmcr
+from the cloned folder, so after a `git pull` it runs without rebuilding the env.
 
 ### 5.3 Outputs (in `--out`)
 
