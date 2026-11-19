@@ -6,13 +6,15 @@ The analysts reviewed records processed with gmprocess 1.3. To train the gmproce
 (scripts/transfer_labels.py). Two steps per batch of staged workspace files:
 
     prepare  (login node: needs the internet for ANSS SIS metadata, and STREC's data)
-        python -m gmcr.reprocess prepare STAGE_DIR OUT_DIR
+        python -m gmcr.reprocess prepare STAGE_DIR OUT_DIR [--sis-cache DIR] [--workers 8]
     For each event in STAGE_DIR (any depth; files grouped by the event id inside them), writes
     OUT_DIR/<event id>/ with event.json (the 1.3 workspace's origin and magnitude, so windows match
     what the analysts saw), strec_results.json, raw/<NET.STA>.xml (the 1.3 StationXML of the
     reviewed stations), the event's SIS snapshot (sis/: gmprocess applies it when assembling,
     offline), and sources.json (which file holds each instrument's raw data). Light: it reads only
-    StationXML and review records from the workspace files.
+    StationXML and review records from the workspace files, and asks SIS about each station only
+    once (SISCache: a station's answer is reused for every event, in every batch), a few events at
+    a time.
 
     run  (compute nodes, one task per list of events; no internet)
         python -m gmcr.reprocess run EVENT_DIR [...] --features FEATURES_DIR [--records RECORDS_DIR]
@@ -105,10 +107,133 @@ def write_event_json(event_dir, event_id, ev):
     return data
 
 
-def prepare_event(event_id, files, event_dir, config, sis=True):
-    """Write an event's folder for `run` (see the module docstring). Returns a summary dict."""
+class SISCache:
+    """A `retrieve` function for gmprocess's refresh_snapshot that asks SIS about each station once.
+
+    SIS metadata belong to a station, not an event, and the same stations recur in many events, so
+    each station's answer is kept in cache_dir (its response bytes, gzipped, and the outcome) and
+    reused for every later event, also in later batches and reruns. Only definite answers are kept:
+    usable, unusable, and no coverage (HTTP 404); a failed download is tried again next time. A
+    reused answer is rebuilt the way gmprocess builds it (parse_station_xml, select_sis_station),
+    with the time of the original download. Thread-safe: one download per station at a time.
+    """
+
+    def __init__(self, cache_dir):
+        import threading
+
+        self.dir = Path(cache_dir)
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self._guard = threading.Lock()
+        self._locks = {}
+        self.hits = self.downloads = 0
+
+    def _paths(self, net, sta):
+        return self.dir / f"{net}.{sta}.json", self.dir / f"{net}.{sta}.xml.gz"
+
+    def _load(self, net, sta):
+        import gzip
+
+        from gmprocess.extended_xml import sis_metadata as sm
+        from gmprocess.extended_xml.extended_xml_parser import parse_station_xml
+
+        meta_path, content_path = self._paths(net, sta)
+        if not meta_path.exists():
+            return None
+        meta = json.loads(meta_path.read_text())
+        content = gzip.decompress(content_path.read_bytes()) if content_path.exists() else None
+        r = sm.SISRetrieval(**meta, content=content)
+        if r.outcome == sm.SIS_USABLE:
+            r.station_xml = parse_station_xml(content)
+            r.sis_station, _ = sm.select_sis_station(r.station_xml, net, sta)
+        return r
+
+    def _save(self, r):
+        import gzip
+
+        meta_path, content_path = self._paths(r.network, r.station)
+        if r.content is not None:
+            tmp = content_path.with_name(content_path.name + ".tmp")
+            tmp.write_bytes(gzip.compress(r.content))
+            tmp.replace(content_path)
+        meta = {k: getattr(r, k) for k in ("network", "station", "url", "outcome", "retrieved_at",
+                                            "attempts", "reason")}
+        tmp = meta_path.with_name(meta_path.name + ".tmp")
+        tmp.write_text(json.dumps(meta))
+        tmp.replace(meta_path)  # written last: marks the entry complete
+
+    def seed(self, event_dirs):
+        """Add the answers already saved in events' SIS snapshots (sis/manifest.json and its
+        records), so a rerun or a cache started after some events were done doesn't ask again.
+        Returns the number of stations added."""
+        import gzip
+
+        from gmprocess.extended_xml import sis_metadata as sm
+
+        added = 0
+        for d in event_dirs:
+            mpath = Path(d) / "sis" / "manifest.json"
+            if not mpath.exists():
+                continue
+            for sid, entry in (json.loads(mpath.read_text()).get("stations") or {}).items():
+                net, sta = sid.split(".", 1)
+                if self._paths(net, sta)[0].exists():
+                    continue
+                latest, active = entry.get("latest") or {}, entry.get("active") or {}
+                outcome = latest.get("outcome")
+                if outcome == sm.SIS_USABLE and active.get("file"):
+                    rec = Path(d) / "sis" / "records" / active["file"]
+                    if not rec.exists():
+                        continue
+                    r = sm.SISRetrieval(net, sta, active.get("url") or latest.get("url", ""), outcome,
+                                        active.get("retrieved_at", ""), latest.get("attempts", 1),
+                                        content=gzip.decompress(rec.read_bytes()))
+                elif outcome == sm.SIS_NO_COVERAGE:
+                    r = sm.SISRetrieval(net, sta, latest.get("url", ""), outcome,
+                                        latest.get("attempted_at", ""), latest.get("attempts", 1),
+                                        reason=latest.get("reason", ""))
+                else:
+                    continue
+                self._save(r)
+                added += 1
+        return added
+
+    def __call__(self, net, sta, timeout, retries=0, retry_delay=0.0):
+        from gmprocess.extended_xml import sis_metadata as sm
+
+        with self._guard:
+            lock = self._locks.setdefault((net, sta), __import__("threading").Lock())
+        with lock:
+            r = self._load(net, sta)
+            if r is not None:
+                with self._guard:
+                    self.hits += 1
+                return r
+            r = sm.retrieve_sis_station(net, sta, timeout, retries=retries, retry_delay=retry_delay)
+            with self._guard:
+                self.downloads += 1
+            if r.outcome in (sm.SIS_USABLE, sm.SIS_UNUSABLE, sm.SIS_NO_COVERAGE):
+                self._save(r)
+            return r
+
+
+def sis_event(event_dir, options, retrieve):
+    """Save an event's SIS snapshot (sis/) for the stations in its sources.json. Returns the
+    outcome counts."""
+    from gmprocess.extended_xml import sis_snapshot
+
+    event_dir = Path(event_dir)
+    src = json.loads((event_dir / SOURCES).read_text())
+    stations = sorted(tuple(ns.split(".")) for ns in src["stationxml_from"])
+    manifest = sis_snapshot.refresh_snapshot(event_dir, stations, retrieve=retrieve, **options)
+    outcomes = [((s.get("latest") or {}).get("outcome")) for s in
+                (manifest.get("stations") or {}).values()] if isinstance(manifest, dict) else []
+    return {o: outcomes.count(o) for o in set(outcomes)}
+
+
+def prepare_event(event_id, files, event_dir):
+    """Write an event's folder for `run` (see the module docstring), except its SIS snapshot
+    (sis_event). Returns a summary dict."""
     from gmprocess.core.scalar_event import ScalarEvent
-    from gmprocess.extended_xml import sis_metadata, sis_snapshot
     from gmprocess.utils.strec import STREC
 
     event_dir = Path(event_dir)
@@ -142,18 +267,17 @@ def prepare_event(event_id, files, event_dir, config, sis=True):
     ev = ScalarEvent.from_params(event_id, UTCDateTime(event["time"]), event["latitude"], event["longitude"],
                                  event["depth_km"], event["magnitude"], event["magnitude_type"])
     STREC.from_event(ev).to_file(event_dir / "strec_results.json")
-    if sis:
-        options = sis_metadata.sis_options_from_config(
-            config["fetchers"]["FDSNFetcher"].get("sis"), force=True)
-        stations = sorted(tuple(ns.split(".")) for ns in xml_from)
-        manifest = sis_snapshot.refresh_snapshot(event_dir, stations, **options)
-        outcomes = [((s.get("latest") or {}).get("outcome")) for s in
-                    (manifest.get("stations") or {}).values()] if isinstance(manifest, dict) else []
-        summary["sis"] = {o: outcomes.count(o) for o in set(outcomes)}
     return summary
 
 
-def prepare(stage_dir, out_dir, sis=True):
+def prepare(stage_dir, out_dir, sis=True, sis_cache=None, workers=8):
+    """Prepare every event staged in stage_dir: first each event's folder, one event after another
+    (reads the workspaces' reviews and StationXML, runs STREC), then the SIS snapshots, `workers`
+    events at a time (network waits only), through a SISCache in sis_cache (default
+    <out_dir>/../sis_cache, shared by the batches). Events already done are skipped."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from gmprocess.extended_xml import sis_metadata
     from gmprocess.utils.config import get_config
 
     config = get_config(generations.config_dir(GENERATION))
@@ -162,28 +286,70 @@ def prepare(stage_dir, out_dir, sis=True):
     groups, bad = group_files(stage_dir)
     print(f"{sum(map(len, groups.values()))} files of {len(groups)} events in {stage_dir}"
           + (f"; {len(bad)} unreadable" if bad else ""), flush=True)
-    rows = []
+
+    rows = {}
+    t_events = time.time()
     for i, (event_id, files) in enumerate(sorted(groups.items()), 1):
         event_dir = out_dir / event_id
-        if (event_dir / SOURCES).exists() and (not sis or (event_dir / "sis").exists()):
-            rows.append(json.loads((event_dir / SOURCES).read_text()))
-            continue
+        src = event_dir / SOURCES
+        if src.exists():
+            info = json.loads(src.read_text())
+            if not info.get("sources") or (event_dir / "strec_results.json").exists():
+                rows[event_id] = {k: info[k] for k in ("event_id", "files", "instruments", "stations")}
+                if not info.get("sources"):
+                    rows[event_id]["skipped"] = "no reviewed instruments with raw data"
+                continue
         t0 = time.time()
         try:
-            s = prepare_event(event_id, files, event_dir, config, sis=sis)
+            s = prepare_event(event_id, files, event_dir)
         except Exception:  # noqa: BLE001
             s = {"event_id": event_id, "error": traceback.format_exc(limit=3)}
-            (event_dir / SOURCES).unlink(missing_ok=True)
+            src.unlink(missing_ok=True)
         s["seconds"] = round(time.time() - t0, 1)
-        rows.append(s)
+        rows[event_id] = s
         print(f"[{i}/{len(groups)}] {event_id}: {s.get('instruments', 0)} instruments, "
-              f"{s.get('stations', 0)} stations, SIS {s.get('sis', '-')}"
+              f"{s.get('stations', 0)} stations, {s['seconds']} s"
               + (f", {s['skipped']}" if "skipped" in s else "")
               + (f", ERROR {s['error'].strip().splitlines()[-1]}" if "error" in s else ""), flush=True)
-    report = {"stage_dir": str(stage_dir), "events": rows, "unreadable_files": bad}
+    t_events = time.time() - t_events
+
+    todo = [e for e, s in rows.items() if "error" not in s and "skipped" not in s
+            and not (out_dir / e / "sis" / "manifest.json").exists()]
+    t_sis = time.time()
+    if sis and todo:
+        options = sis_metadata.sis_options_from_config(
+            config["fetchers"]["FDSNFetcher"].get("sis"), force=True)
+        cache = SISCache(sis_cache or out_dir.parent / "sis_cache")
+        seeded = cache.seed(p for p in out_dir.iterdir() if p.is_dir())
+        print(f"SIS metadata for {len(todo)} events, {workers} at a time (station cache {cache.dir}"
+              + (f", {seeded} stations added from earlier snapshots" if seeded else "") + ")",
+              flush=True)
+
+        def one(event_id):
+            try:
+                return event_id, sis_event(out_dir / event_id, options, cache)
+            except Exception:  # noqa: BLE001
+                return event_id, {"error": traceback.format_exc(limit=3)}
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for k, (event_id, res) in enumerate(pool.map(one, todo), 1):
+                if "error" in res:
+                    rows[event_id]["sis_error"] = res["error"]
+                else:
+                    rows[event_id]["sis"] = res
+                print(f"[SIS {k}/{len(todo)}] {event_id}: {res if 'error' not in res else 'ERROR ' + res['error'].strip().splitlines()[-1]}"
+                      f"  (cache: {cache.downloads} downloaded, {cache.hits} reused)", flush=True)
+    t_sis = time.time() - t_sis
+    rows = list(rows.values())
+    report = {"stage_dir": str(stage_dir), "events": rows, "unreadable_files": bad,
+              "seconds": {"events": round(t_events, 1), "sis": round(t_sis, 1)}}
     (out_dir / "prepare.json").write_text(json.dumps(report, indent=1, default=str))
-    ready = [r["event_id"] for r in rows if "error" not in r and "skipped" not in r]
-    print(f"{len(ready)} events ready to run; {sum('error' in r for r in rows)} errors "
+    ready = [r["event_id"] for r in rows if "error" not in r and "skipped" not in r
+             and (not sis or (out_dir / r["event_id"] / "sis" / "manifest.json").exists())]
+    n_sis_err = sum("sis_error" in r for r in rows)
+    print(f"{len(ready)} events ready to run; {sum('error' in r for r in rows)} errors"
+          + (f", {n_sis_err} SIS errors (rerun to retry)" if n_sis_err else "")
+          + f"; {t_events / 60:.1f} min for the events, {t_sis / 60:.1f} min for SIS "
           f"(see {out_dir / 'prepare.json'})", flush=True)
     return ready
 
@@ -317,6 +483,11 @@ def main(argv=None):
     pp.add_argument("stage_dir", help="folder of staged 1.3 workspace files (searched at any depth)")
     pp.add_argument("out_dir", help="folder for the event folders (one batch)")
     pp.add_argument("--no-sis", action="store_true", help="skip the SIS snapshot (no internet)")
+    pp.add_argument("--sis-cache", default=None,
+                    help="folder of each station's SIS answer, reused across events and batches "
+                         "(default: OUT_DIR/../sis_cache)")
+    pp.add_argument("--workers", type=int, default=8,
+                    help="events whose SIS metadata are fetched at a time (default 8)")
     pr = sub.add_parser("run", help="compute node: export raw data, gmprocess 2.9, extract")
     pr.add_argument("event_dirs", nargs="+", help="prepared event folders (or files listing them, with --list)")
     pr.add_argument("--list", action="store_true", help="each argument is a text file of event folders")
@@ -331,7 +502,7 @@ def main(argv=None):
     logging.basicConfig(level=logging.WARNING)
 
     if a.cmd == "prepare":
-        prepare(a.stage_dir, a.out_dir, sis=not a.no_sis)
+        prepare(a.stage_dir, a.out_dir, sis=not a.no_sis, sis_cache=a.sis_cache, workers=a.workers)
         return 0
     dirs = a.event_dirs
     if a.list:

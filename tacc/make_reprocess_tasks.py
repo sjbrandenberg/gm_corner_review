@@ -24,8 +24,8 @@ def tasks(run, batch, keep, delete_source, records=True):
     events = run / "events" / batch
     done = {f.stem for f in (run / "features" / "traces").glob("*.parquet")} \
         if (run / "features" / "traces").exists() else set()
-    todo = []
-    for d in sorted(events.iterdir()):
+    todo, no_sis = [], []
+    for d in sorted(p for p in events.iterdir() if p.is_dir()):
         src = d / "sources.json"
         if not src.exists():
             continue
@@ -37,6 +37,9 @@ def tasks(run, batch, keep, delete_source, records=True):
             if not records or (status.exists() and
                                json.loads(status.read_text()).get("status") == "nothing to run"):
                 continue
+        elif not (d / "sis" / "manifest.json").exists():
+            no_sis.append(d.name)  # prepare hasn't fetched its SIS metadata yet (or it failed)
+            continue
         todo.append((len(info["sources"]), d))
     todo.sort(key=lambda t: -t[0])
     flags = (f" --records {run / 'records13'}" * records + " --keep" * keep
@@ -46,6 +49,9 @@ def tasks(run, batch, keep, delete_source, records=True):
     out.write_text("\n".join(lines) + "\n")
     print(f"{batch}: {len(todo)} events to run ({sum(n for n, _ in todo)} instruments), "
           f"{len(done)} files already extracted -> {out}")
+    if no_sis:
+        print(f"  left out until prepare has their SIS metadata (rerun it): {len(no_sis)} events, "
+              f"e.g. {', '.join(no_sis[:5])}")
 
 
 def report(run):

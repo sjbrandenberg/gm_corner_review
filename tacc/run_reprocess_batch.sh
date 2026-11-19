@@ -39,7 +39,7 @@ conda activate gmp29
 export PYTHONPATH=$REPO${PYTHONPATH:+:$PYTHONPATH}   # gmcr from this checkout
 mkdir -p "$RUN_DIR/events"
 echo "$(date) preparing $B (STREC, SIS metadata)"
-python -m gmcr.reprocess prepare "$STAGE_ROOT/$B" "$RUN_DIR/events/$B"
+python -m gmcr.reprocess prepare "$STAGE_ROOT/$B" "$RUN_DIR/events/$B" --sis-cache "$RUN_DIR/sis_cache"
 python "$REPO/tacc/make_reprocess_tasks.py" "$RUN_DIR" "$B"
 
 if [ -z "${SKIP_SUBMIT:-}" ]; then

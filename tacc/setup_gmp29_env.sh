@@ -48,7 +48,7 @@ fi
 python -c "
 from strec.subtype import SubductionSelector
 r = SubductionSelector().getSubductionType(37.9147, -122.3043, 4.6, 3.6)
-print('STREC answers:', r['TectonicRegion'], r['TectonicDomain'])"
+print('STREC answers:', r['TectonicRegion'], r['FocalMechanism'])"
 
 echo "Packing env to $PACK"
 rm -f "$PACK"
