@@ -50,6 +50,7 @@ tacc/stage_batch.sh    stage one Globus batch and wait (used by both run_*batch.
 tacc/redo_events.py    clear some reprocessed events' outputs and stage their 1.3 files again
 scripts/transfer_labels.py  the analysts' 1.3 decisions joined to reprocessed features (training tables)
 scripts/record_status.py    every record with its outcome (accepted / rejected by gmprocess or analyst) + metadata
+scripts/compare_generations.py  the same models on two gmprocess versions' features, scored against the analysts
 gmcr/modeling.py       datasets, leakage-safe features, event-grouped CV, metrics, log-linear/Tobit model
 scripts/train_corner_model.py   fchp / fclp: baselines vs simple vs LightGBM
 scripts/train_accept_model.py   accept/reject: constant vs logistic vs LightGBM
