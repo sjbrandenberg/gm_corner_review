@@ -1,0 +1,71 @@
+{
+ "format_version": 1,
+ "kind": "fclp",
+ "generation": "gmprocess-2.9",
+ "recommendation": "lightgbm",
+ "features": [
+  "ln_fchp_gmp",
+  "ln_fchp_gui",
+  "gui_at_cap",
+  "method_polyfit",
+  "ln_fclp_gmp",
+  "ln_rrup",
+  "ln_rjb",
+  "rx",
+  "ry0",
+  "ln_sampling_rate",
+  "is_vertical",
+  "accelerometer",
+  "broadband",
+  "ln_snr2_flo",
+  "ln_snr2_fhi",
+  "ln_snr3_flo",
+  "ln_snr3_fhi",
+  "ln_snr5_flo",
+  "ln_snr5_fhi",
+  "ln_snr10_flo",
+  "ln_snr10_fhi",
+  "ln_snr_at_0.1hz",
+  "ln_snr_at_0.3hz",
+  "ln_snr_at_1hz",
+  "ln_snr_at_3hz",
+  "ln_snr_at_10hz",
+  "ln_snr_max",
+  "ln_stress_drop",
+  "ln_f0",
+  "fit_magnitude",
+  "clipping_prob",
+  "zero_crossing_rate",
+  "preevent_noise_s",
+  "ln_signal_duration",
+  "ln_pga_gmp",
+  "ln_pga_ratio",
+  "poly_ratio_at_gmp",
+  "poly_ratio_at_gui",
+  "pre_ratio_at_gmp",
+  "pre_ratio_at_gui",
+  "psa_rough_short",
+  "psa_max_bump_short",
+  "psa001_over_pga",
+  "ln_vs30",
+  "ln_z1p0"
+ ],
+ "curves": false,
+ "dropped": [
+  "magnitude",
+  "depth_km"
+ ],
+ "simple_features": null,
+ "models": {
+  "lightgbm_classifier": {
+   "type": "lightgbm",
+   "file": "lightgbm_lightgbm_classifier.txt",
+   "objective": "binary"
+  },
+  "lightgbm_shift": {
+   "type": "lightgbm",
+   "file": "lightgbm_lightgbm_shift.txt",
+   "objective": "regression"
+  }
+ }
+}
