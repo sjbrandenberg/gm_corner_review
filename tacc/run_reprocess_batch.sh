@@ -15,6 +15,9 @@
 #   STAGE_ROOT=$SCRATCH/gm_stage         where Globus puts the batches (their --dest-root)
 #   RUN_DIR=$SCRATCH/gmcr29_run          event folders (events/<batch>/), features/, tasks, report
 #   NODES=1                              nodes for the job
+#   PARTITION=skx                        queue for the job, e.g. skx-dev (2 hours at most, 1 job at a
+#                                        time, but it starts within minutes)
+#   TIME=08:00:00                        the job's time limit (hh:mm:ss)
 #   SKIP_TRANSFER=1                      if the batch is already staged
 #   SKIP_SUBMIT=1                        prepare and write the task list only
 
@@ -25,6 +28,8 @@ GLOBUS_DIR=${GLOBUS_DIR:-$SCRATCH/gmcr_run/globus}
 STAGE_ROOT=${STAGE_ROOT:-$SCRATCH/gm_stage}
 RUN_DIR=${RUN_DIR:-$SCRATCH/gmcr29_run}
 NODES=${NODES:-1}
+PARTITION=${PARTITION:-skx}
+TIME=${TIME:-08:00:00}
 CONDA_ROOT=${CONDA_ROOT:-$WORK/miniforge3}
 source "$CONDA_ROOT/etc/profile.d/conda.sh"
 
@@ -46,5 +51,6 @@ if [ -z "${SKIP_SUBMIT:-}" ]; then
     # submit.sh copies the code and the gmp29 env to $SCRATCH and runs the job from there (logs in
     # $SCRATCH/gmcr_logs/gmcr29_<batch>.<jobid>.out)
     GMCR_PACK_SRC=$WORK/gmp29_env.tar.gz bash "$REPO/tacc/submit.sh" reprocess \
-        RUN_DIR="$RUN_DIR" TASKS="$RUN_DIR/tasks_$B.txt" -- -N "$NODES" -J "gmcr29_$B"
+        RUN_DIR="$RUN_DIR" TASKS="$RUN_DIR/tasks_$B.txt" \
+        -- -N "$NODES" -p "$PARTITION" -t "$TIME" -J "gmcr29_$B"
 fi

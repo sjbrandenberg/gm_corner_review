@@ -498,8 +498,19 @@ bash tacc/run_reprocess_batch.sh b002
 ```
 
 Each job runs one event per task, 24 tasks per node (gmprocess keeps an event's streams in memory),
-largest events first; `NODES=2` speeds up a batch. After each job, `ls $SCRATCH/gm_stage/<batch>`
-holds only the files of events that failed or had nothing to reprocess. To retry the failures, rerun
+largest events first; `NODES=2` speeds up a batch. The job goes to `skx` for 8 hours unless
+`PARTITION` and `TIME` say otherwise: `skx-dev` (at most 2 hours, one job at a time) usually starts
+within minutes, where `skx` can wait a day. b001 (120 events, 69,000 traces) took 31.8 core-hours,
+about 1.3 hours spread over 24 tasks, so a batch like it should fit in 2 hours on one node, unless one
+very large event runs longer than that by itself:
+
+```bash
+PARTITION=skx-dev TIME=02:00:00 bash tacc/run_reprocess_batch.sh b002
+```
+
+If a job hits its limit, the events it finished are kept; rerun with `SKIP_TRANSFER=1` for the rest.
+After each job, the batch's staging folder is empty except for the files of events that failed or had
+nothing to reprocess. To retry the failures, rerun
 `SKIP_TRANSFER=1 bash tacc/run_reprocess_batch.sh <batch>`. To fetch an event's SIS metadata again,
 delete its `sis/` folder and rerun.
 

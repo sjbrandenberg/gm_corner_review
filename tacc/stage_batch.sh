@@ -18,6 +18,8 @@ TASK=$(globus transfer "$DESIGNSAFE_COLLECTION" "$STAMPEDE3_COLLECTION" \
     --jmespath task_id --format unix)
 echo "$(date) Globus task $TASK started for $B"
 echo "$TASK" > "$GLOBUS_DIR/$B.task"
+# Ctrl-C stops the waiting, not the transfer, which runs on Globus's side; say so and how to cancel it.
+trap 'echo; echo "Stopped waiting. Globus transfer $TASK ($B) continues; to cancel it: globus task cancel $TASK"; exit 130' INT
 until globus task wait "$TASK" --timeout 3600 --polling-interval 60 >/dev/null 2>&1; do
     STATUS=$(globus task show "$TASK" --jmespath status --format unix)
     echo "$(date) $B: $STATUS"
