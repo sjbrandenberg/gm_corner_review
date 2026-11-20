@@ -3,7 +3,10 @@
     python scripts/join_metadata.py FEATURES_DIR
 
 Reads FEATURES_DIR/traces_all.parquet and FEATURES_DIR/db/*.parquet (from
-fetch_flatfile.py); writes FEATURES_DIR/traces_joined.parquet.
+fetch_flatfile.py, or from the database directly, e.g. nga-gm's bin/gmp/db_metadata.py on
+the server); writes FEATURES_DIR/traces_joined.parquet. The flatfile tables are optional:
+new events have no flatfile rows, and their predictors don't need any (ff_* and analyst_id
+are left out without them).
 
 Column groups added
   ev_*   event + finite-fault attributes (events/finiteFaults tables)      all events in DB
@@ -166,8 +169,11 @@ def main(feat_dir):
                          "trace_keys; rerun scripts/merge_outputs.py (mixed old and new outputs?)")
     steps = [("events", lambda t: t.merge(event_table(db), on="event_id", how="left")),
              ("stations", lambda t: attach_stations(t, station_table(db))),
-             ("distances", lambda t: attach_distances(t, db)),
-             ("flatfile", lambda t: attach_flatfile(t, db))]
+             ("distances", lambda t: attach_distances(t, db))]
+    if (db / "flatfile_features.parquet").exists():
+        steps.append(("flatfile", lambda t: attach_flatfile(t, db)))
+    else:
+        print("no flatfile tables in db/: ff_* and analyst_id left out")
     for name, step in steps:
         tr = step(tr)
         if len(tr) != n0:
@@ -175,14 +181,15 @@ def main(feat_dir):
 
     rev = tr["y_reviewed"] == 1
     acc, rej = rev & (tr["y_accepted"] == 1), rev & (tr["y_accepted"] == 0)
-    both = tr[acc & tr["ff_hpass_fc"].notna()]
-    agree = np.isclose(both["y_fchp"], both["ff_hpass_fc"], rtol=1e-3)
+    both = tr[acc & tr["ff_hpass_fc"].notna()] if "ff_hpass_fc" in tr else tr.iloc[:0]
+    agree = np.isclose(both["y_fchp"], both["ff_hpass_fc"], rtol=1e-3) if len(both) else np.zeros(0, bool)
     pct = lambda s: f"{100 * s.mean():.1f}%" if len(s) else "n/a"
     print(f"traces {len(tr)}  reviewed {int(rev.sum())}  accepted {int(acc.sum())}  rejected {int(rej.sum())}")
-    print(f"event matched: {pct(tr['db_event_id'].notna())}  analyst_id: {pct(tr['analyst_id'].notna())}")
+    print(f"event matched: {pct(tr['db_event_id'].notna())}"
+          + (f"  analyst_id: {pct(tr['analyst_id'].notna())}" if "analyst_id" in tr else ""))
     print(f"station/site matched: all {pct(tr['st_station_id'].notna())}, accepted {pct(tr.loc[acc, 'st_station_id'].notna())}, "
           f"rejected {pct(tr.loc[rej, 'st_station_id'].notna())}  (gap = st_* leakage for accept/reject)")
-    print(f"vs30 available: accepted {pct(tr.loc[acc, 'st_vs30'].notna())}, rejected {pct(tr.loc[rej, 'st_vs30'].notna())}")
+    print(f"vs30 available: all {pct(tr['st_vs30'].notna())}, accepted {pct(tr.loc[acc, 'st_vs30'].notna())}, rejected {pct(tr.loc[rej, 'st_vs30'].notna())}")
     print(f"distances: {tr['d_source'].value_counts().to_dict()}")
     if "ff_rrup" in tr:
         ok = tr["ff_rrup"].notna() & tr["d_rrup"].notna()
