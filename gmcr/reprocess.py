@@ -585,6 +585,10 @@ def run_event(event_dir, features_dir, keep=False, delete_source=False, records_
         if st.get("status") in ("ok", "nothing to run") and delete_source and records_ok:
             for f in json.loads((event_dir / SOURCES).read_text())["files"]:
                 Path(f).unlink(missing_ok=True)
+                try:
+                    Path(f).parent.rmdir()  # the staged event folder, once empty
+                except OSError:
+                    pass
         status_path.write_text(json.dumps(st, indent=1, default=str))
     return st
 

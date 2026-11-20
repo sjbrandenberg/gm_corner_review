@@ -124,11 +124,12 @@ def process_file(path, outdir, reviewed_only=False, compute_psa=True, label=None
             version = ws.gmprocess_version()
             gen = generation or generations.for_gmprocess(version)
             log.update(event_id=ws.event_id, label=ws.label, gmprocess_version=version)
-            if gen is None:
+            if gen is None and not metadata_only:  # the record list uses no auto_fchp
                 raise ValueError(f"no model generation covers gmprocess {version}; known: "
                                  + ", ".join(generations.GENERATIONS))
-            af_version = generations.auto_fchp_version(gen)
-            log.update(generation=gen, auto_fchp=f"ucla_geotech_tools {af_version}")
+            af_version = generations.auto_fchp_version(gen) if gen else None
+            log.update(generation=gen,
+                       auto_fchp=f"ucla_geotech_tools {af_version}" if af_version else None)
             for tid in ws.processed_trace_ids():
                 if reviewed_only:
                     rv = ws.review(tid)

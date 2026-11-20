@@ -5,7 +5,8 @@ models trained on workspaces from one gmprocess version are biased on another: g
 corners differ from 1.3's (on nc73819746, the low-pass corner is about 30% higher for the same raw
 data). Each generation therefore names
 
-    gmprocess   the gmprocess version (major, minor) whose workspaces it was trained on and applies to
+    gmprocess   the gmprocess versions [(major, minor), ...] whose workspaces it was trained on and
+                applies to
     auto_fchp   the ucla_geotech_tools version of auto_fchp that computes fchp_gui and the
                 displacement-ratio curves (gmcr.auto_fchp_303, gmcr.auto_fchp_310)
     config      the gmprocess config folder (gmrecords --confdir) the training workspaces were
@@ -28,12 +29,14 @@ CONF = Path(__file__).resolve().parent / "conf"
 
 GENERATIONS = {
     "gmprocess-1.3": {
-        "gmprocess": (1, 3),
+        # the NGA-West3 review workspaces, and so the training data, were written by gmprocess 1.2.9
+        # (some events) and 1.3 (most)
+        "gmprocess": [(1, 2), (1, 3)],
         "auto_fchp": "3.0.3",
-        "note": "NGA-West3 review workspaces (gmprocess 1.3 at 045580a1, review GUI v6.2)",
+        "note": "NGA-West3 review workspaces (gmprocess 1.2.9 and 1.3 at 045580a1, review GUI v6.2)",
     },
     "gmprocess-2.9": {
-        "gmprocess": (2, 9),
+        "gmprocess": [(2, 9)],
         "auto_fchp": "3.1.0",
         "config": "gmprocess-2.9",
         "note": "training events reprocessed with gmprocess 2.9 and gmcr/conf/gmprocess-2.9 "
@@ -54,7 +57,7 @@ def for_gmprocess(version):
     """The generation for a gmprocess version string, or None if no generation covers it."""
     mm = parse_version(version)
     for name, g in GENERATIONS.items():
-        if g["gmprocess"] == mm:
+        if mm in g["gmprocess"]:
             return name
     return None
 
@@ -78,4 +81,5 @@ def config_dir(name):
 
 def describe(name):
     g = get(name)
-    return f"{name} (gmprocess {g['gmprocess'][0]}.{g['gmprocess'][1]}, auto_fchp {g['auto_fchp']})"
+    versions = " and ".join(f"{major}.{minor}" for major, minor in g["gmprocess"])
+    return f"{name} (gmprocess {versions}, auto_fchp {g['auto_fchp']})"
