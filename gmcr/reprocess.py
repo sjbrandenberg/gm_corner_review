@@ -21,19 +21,22 @@ The analysts reviewed records processed with gmprocess 1.3. To train the gmproce
                                      [--delete-source]
     For each event: with --records, first lists every trace of the event's 1.3 files with its outcome
     (gmcr.extract --metadata-only into RECORDS_DIR, for scripts/record_status.py: all traces, also
-    those gmprocess or the analyst rejected); then writes the 1.3 unprocessed traces of the reviewed instruments to raw/ as
-    MiniSEED, runs `gmrecords assemble` and `process_waveforms` with the generation's config,
+    those gmprocess or the analyst rejected); then hands the 1.3 unprocessed traces of the reviewed
+    instruments to gmprocess 2.9 unchanged (export_waveforms, assemble_event), runs gmprocess's
+    assemble and `gmrecords process_waveforms` with the generation's config,
     extracts gmcr's features from the new workspace (generation gmprocess-2.9) into FEATURES_DIR,
     then deletes the MiniSEED files and the workspace (--keep keeps them) and, with
     --delete-source, the staged 1.3 files. Writes reprocess.json (status, counts, timings); events
     whose features exist are skipped, so tasks can be rerun.
 
 Only instruments (NET.STA.LOC + band/instrument code, e.g. CI.CRY..HN) with at least one reviewed trace
-are reprocessed: the others have no labels. gmprocess 2.9's MiniSEED reader requires integer raw data,
-and some 1.3 unprocessed traces are floats: half-count values from interpolation when gappy segments
-were merged. They are rounded to whole counts when the instrument's response says the data are counts
-(sensitivity >= MIN_COUNTS_SENSITIVITY); traces in physical units (e.g. converted by a format reader)
-can't go through MiniSEED and are left out, counted in reprocess.json as "physical_units".
+are reprocessed: the others have no labels. The 1.3 unprocessed traces are of two kinds (their process
+level in the workspace): raw counts from FDSN data, which go through MiniSEED and gmprocess's own
+assemble (with the SIS snapshot), unrounded even when 1.3 stored them as floats (merged or
+interpolated segments); and data a format reader already converted to physical units (CESMD's DMG and
+COSMOS files: cm/s^2, response removed), which no raw file can carry and are added from the 1.3
+workspace with gmprocess 2.9's own reader. reprocess.json counts both (integer, float_counts,
+physical_units).
 """
 
 import argparse
@@ -357,9 +360,52 @@ def prepare(stage_dir, out_dir, sis=True, sis_cache=None, workers=8):
 # ---------------------------------------------------------------------------------- run
 
 
+EXPORT = "export.json"
+NOT_INTEGER = "Raw data type is not integer."
+
+
+def process_levels(ws):
+    """{instrument: gmprocess process level} of a workspace's unprocessed streams ('raw counts' for
+    FDSN data; 'uncorrected physical units' etc. for data a format reader converted, e.g. DMG/COSMOS
+    from CESMD), from AuxiliaryData/StreamSupplementalStats."""
+    out = {}
+    grp = ws.f.get("AuxiliaryData/StreamSupplementalStats")
+    if grp is None:
+        return out
+    suffix = f"_{ws.event_id}_{UNPROCESSED}"
+    for netsta in grp:
+        for name in grp[netsta]:
+            if name.endswith(suffix):
+                d = json.loads(np.asarray(grp[netsta][name][()]).tobytes().decode())
+                out[name[: -len(suffix)]] = (d.get("standard") or {}).get("process_level")
+    return out
+
+
+def _counts_by_response(ws, tid):
+    """Fallback without a recorded process level: counts if the response's sensitivity is that of
+    a digitizer."""
+    net, sta, loc, cha = tid.split(".")
+    try:
+        sens = ws.inventory(f"{net}.{sta}").select(location=loc, channel=cha)[0][0][0] \
+            .response.instrument_sensitivity.value
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(sens) and abs(sens) >= MIN_COUNTS_SENSITIVITY
+
+
 def export_waveforms(event_dir):
-    """Write the 1.3 unprocessed traces of the event's instruments to raw/ as MiniSEED.
-    Returns counts by kind: integer, rounded (counts stored as floats), physical_units (left out)."""
+    """Hand the 1.3 unprocessed traces of the event's instruments to gmprocess 2.9 unchanged:
+
+    raw counts (FDSN data): written to raw/ as MiniSEED for `assemble` (which also applies the SIS
+        snapshot), as int32, or as float64 when 1.3 stored them as floats (merged or interpolated
+        segments); those are listed in export.json, and `assemble_event` waives gmprocess's "raw data
+        type is not integer" check for exactly them instead of rounding the data;
+    physical units (data a format reader converted, e.g. CESMD's DMG files): no raw file can carry
+        them, so `assemble_event` adds these streams from the 1.3 workspace with gmprocess 2.9's own
+        reader, keeping their units, process level, and response-removal provenance, as 2.9 would
+        have read them.
+
+    Returns counts of traces: integer, float_counts, physical_units."""
     import obspy
 
     event_dir = Path(event_dir)
@@ -367,42 +413,102 @@ def export_waveforms(event_dir):
     by_file = {}
     for inst, f in src["sources"].items():
         by_file.setdefault(f, set()).add(inst)
-    counts = {"integer": 0, "rounded": 0, "physical_units": 0}
-    left_out = []
+    counts = {"integer": 0, "float_counts": 0, "physical_units": 0}
+    float_ids, inject = [], {}
     for f, insts in by_file.items():
         with Workspace(f) as ws:
+            levels = process_levels(ws)
             tag = f"{ws.event_id}_{UNPROCESSED}"
             for (tid, t), path in sorted(ws.waveforms.items()):
-                if t != tag or instrument(tid) not in insts:
+                inst = instrument(tid)
+                if t != tag or inst not in insts:
                     continue
                 ds = ws.f[path]
                 data = np.asarray(ds[()])
+                level = levels.get(inst)
+                is_counts = (level == "raw counts") if level else \
+                    (data.dtype.kind in "iu" or _counts_by_response(ws, tid))
+                if not is_counts:
+                    counts["physical_units"] += 1
+                    inject.setdefault(f, set()).add(inst)
+                    continue
                 net, sta, loc, cha = tid.split(".")
-                if data.dtype.kind in "iu":
-                    kind = "integer"
+                if data.dtype.kind in "iu" or np.array_equal(data, np.round(data)):
+                    counts["integer"] += 1
+                    data, encoding = data.astype(np.int32), "INT32"
                 else:
-                    kind = "rounded"
-                    inv = ws.inventory(f"{net}.{sta}")
-                    try:
-                        sens = inv.select(location=loc, channel=cha)[0][0][0].response \
-                            .instrument_sensitivity.value
-                    except Exception:  # noqa: BLE001
-                        sens = None
-                    if not sens or abs(sens) < MIN_COUNTS_SENSITIVITY:
-                        counts["physical_units"] += 1
-                        left_out.append(tid)
-                        continue
-                    if np.allclose(data, np.round(data), rtol=0, atol=1e-6):
-                        kind = "integer"
-                counts[kind] += 1
-                tr = obspy.Trace(data=np.round(data).astype(np.int32), header={
+                    counts["float_counts"] += 1
+                    float_ids.append(tid)
+                    data, encoding = data.astype(np.float64), "FLOAT64"
+                tr = obspy.Trace(data=data, header={
                     "network": net, "station": sta, "location": loc, "channel": cha,
                     "sampling_rate": float(ds.attrs["sampling_rate"]),
                     "starttime": obspy.UTCDateTime(ns=int(ds.attrs["starttime"]))})
                 t0 = tr.stats.starttime.strftime("%Y%m%dT%H%M%SZ")
                 t1 = tr.stats.endtime.strftime("%Y%m%dT%H%M%SZ")
-                tr.write(str(event_dir / "raw" / f"{tid}__{t0}__{t1}.mseed"), format="MSEED", encoding="INT32")
-    return counts, left_out
+                tr.write(str(event_dir / "raw" / f"{tid}__{t0}__{t1}.mseed"), format="MSEED",
+                         encoding=encoding)
+    (event_dir / EXPORT).write_text(json.dumps(
+        {"counts": counts, "float_counts": float_ids,
+         "inject": {f: sorted(v) for f, v in inject.items()}}, indent=1))
+    return counts
+
+
+def assemble_event(event_dir):
+    """gmprocess 2.9's assemble for one exported event folder, run in this process (see
+    export_waveforms): the MiniSEED traces through gmprocess's assemble, with its "raw data type is
+    not integer" check waived only for the float count traces export.json lists, then the
+    physical-unit streams from the 1.3 workspaces added as unprocessed streams. Writes
+    <event_dir>/workspace.h5 and gmrecords_assemble.log."""
+    import logging as log
+    from importlib.metadata import version
+
+    from gmprocess.core.stationtrace import StationTrace
+    from gmprocess.core.streamcollection import StreamCollection
+    from gmprocess.io.asdf.stream_workspace import StreamWorkspace
+    from gmprocess.utils import assemble_utils
+    from gmprocess.utils.config import get_config
+
+    event_dir = Path(event_dir)
+    log.basicConfig(filename=str(event_dir / "gmrecords_assemble.log"), level=log.INFO, force=True)
+    exp = json.loads((event_dir / EXPORT).read_text())
+    waived = {t.replace(".--.", "..") for t in exp["float_counts"]}
+    fail = StationTrace.fail
+
+    def fail_unless_waived(trace, reason):
+        tid = f"{trace.stats.network}.{trace.stats.station}.{trace.stats.location}.{trace.stats.channel}"
+        if reason == NOT_INTEGER and tid.replace(".--.", "..") in waived:
+            return  # 1.3 stored these counts as floats; keep them unrounded
+        return fail(trace, reason)
+
+    config = get_config(generations.config_dir(GENERATION))
+    gmp_version = version("gmprocess")
+    (event_dir / "workspace.h5").unlink(missing_ok=True)
+    StationTrace.fail = fail_unless_waived
+    try:
+        ws = assemble_utils.assemble(event_dir.name, None, config, event_dir.parent, gmp_version,
+                                     "default")
+    finally:
+        StationTrace.fail = fail
+    if ws is None:
+        raise RuntimeError(f"gmprocess's assemble found no event in {event_dir}")
+    try:
+        event = ws.get_event(event_dir.name)
+        for f, insts in exp["inject"].items():
+            w13 = StreamWorkspace.open(f)
+            try:
+                stations = sorted({".".join(i.split(".")[:2]) for i in insts})
+                streams = [st for st in w13.get_streams(event_dir.name, stations=stations,
+                                                        labels=[UNPROCESSED], config=config)
+                           if instrument(st[0].id) in set(insts)]
+            finally:
+                w13.close()
+            if streams:
+                ws.add_streams(event, StreamCollection(streams, config=config),
+                               label=UNPROCESSED, gmprocess_version=gmp_version)
+                log.info("added %d physical-unit streams from %s", len(streams), f)
+    finally:
+        ws.close()
 
 
 def gmrecords(event_dir, subcommand):
@@ -440,11 +546,18 @@ def run_event(event_dir, features_dir, keep=False, delete_source=False, records_
         if not src.get("sources"):
             st["status"] = "nothing to run"
             return st
-        st["export"], st["left_out_physical_units"] = export_waveforms(event_dir)
-        st["export_seconds"] = round(time.time() - t, 1)
+        for f in (event_dir / "raw").glob("*.mseed"):  # leftovers of an earlier attempt
+            f.unlink()
+        t1 = time.time()
+        st["export"] = export_waveforms(event_dir)
+        st["export_seconds"] = round(time.time() - t1, 1)
         t1 = time.time()
         (event_dir / "workspace.h5").unlink(missing_ok=True)
-        gmrecords(event_dir, "assemble")
+        r = subprocess.run([sys.executable, "-m", "gmcr.reprocess", "assemble", str(event_dir)],
+                           capture_output=True, text=True)
+        if r.returncode:
+            tail = "\n".join((r.stderr or r.stdout).strip().splitlines()[-15:])
+            raise RuntimeError(f"assemble failed ({r.returncode}):\n{tail}")
         st["assemble_seconds"] = round(time.time() - t1, 1)
         t1 = time.time()
         gmrecords(event_dir, "process_waveforms")
@@ -498,7 +611,12 @@ def main(argv=None):
     pr.add_argument("--keep", action="store_true", help="keep the MiniSEED files and the 2.9 workspace")
     pr.add_argument("--delete-source", action="store_true",
                     help="delete the staged 1.3 files of each event that finished (staged copies only)")
+    pa = sub.add_parser("assemble", help="(used by run) gmprocess 2.9's assemble of one exported event")
+    pa.add_argument("event_dir")
     a = p.parse_args(argv)
+    if a.cmd == "assemble":
+        assemble_event(a.event_dir)
+        return 0
     logging.basicConfig(level=logging.WARNING)
 
     if a.cmd == "prepare":

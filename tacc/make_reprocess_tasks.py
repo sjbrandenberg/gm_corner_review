@@ -9,8 +9,8 @@ whose features already exist are left out. Each task also lists every trace of t
 with its outcome into RUN_DIR/records13 (for scripts/record_status.py; --no-records skips it), so
 events with nothing to reprocess still get a task. Writes RUN_DIR/tasks_<batch>.txt.
 
---report summarizes every event's reprocess.json: status, traces, time per stage, raw traces rounded
-or left out, and the errors (RUN_DIR/reprocess_report.csv).
+--report summarizes every event's reprocess.json: status, traces, time per stage, raw traces stored as
+float counts or in physical units, and the errors (RUN_DIR/reprocess_report.csv).
 """
 
 import argparse
@@ -61,7 +61,9 @@ def report(run):
         exp = st.get("export") or {}
         rows.append({"batch": f.parent.parent.name, "event_id": st.get("event_id"),
                      "status": st.get("status"), "n_traces": st.get("n_traces"), "n_ok": st.get("n_ok"),
-                     "rounded": exp.get("rounded"), "physical_units": exp.get("physical_units"),
+                     "float_counts": exp.get("float_counts", exp.get("rounded")),
+                     "physical_units": exp.get("physical_units"),
+                     "physical_units_left_out": len(st.get("left_out_physical_units") or []),
                      **{k: st.get(k) for k in ("export_seconds", "assemble_seconds", "process_seconds",
                                                "extract_seconds", "seconds")},
                      "error": (st.get("error") or "").strip().splitlines()[-1:] or None})
@@ -71,8 +73,11 @@ def report(run):
     df = pd.DataFrame(rows)
     df.to_csv(run / "reprocess_report.csv", index=False)
     print(df.groupby("status").agg(events=("event_id", "count"), traces=("n_ok", "sum")).to_string())
-    print(f"raw traces rounded to counts: {int(df['rounded'].fillna(0).sum())}; left out (physical "
-          f"units): {int(df['physical_units'].fillna(0).sum())}; core-hours: "
+    left = int(df["physical_units_left_out"].fillna(0).sum())
+    print(f"raw traces stored as float counts: {int(df['float_counts'].fillna(0).sum())}; in physical "
+          f"units: {int(df['physical_units'].fillna(0).sum())}"
+          + (f" ({left} LEFT OUT by the first version of gmcr.reprocess: rerun those events)" if left else "")
+          + "; core-hours: "
           f"{df['seconds'].fillna(0).sum() / 3600:.1f} -> {run / 'reprocess_report.csv'}")
 
 

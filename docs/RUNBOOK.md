@@ -442,13 +442,19 @@ workspace files are reprocessed as one, and a station reviewed in two files once
 * `prepare` writes the event's origin and magnitude **from the 1.3 workspace** (so the signal windows
   are those the analysts saw, not today's ComCat values), the 1.3 StationXML, STREC's tectonic region,
   and the event's ANSS SIS snapshot (`sis/`), which gmprocess applies offline when it assembles;
-* `run` writes the 1.3 *unprocessed* traces as MiniSEED. gmprocess 2.9 requires integer raw data;
-  1.3 stored some count traces as floats (half counts from merging gappy segments), which are rounded
-  to whole counts. Traces whose response says they are in physical units (sensitivity < 1000) can't be
-  rounded and are left out (`physical_units` in the report);
-* then `gmrecords assemble` and `process_waveforms` with the generation's config, gmcr's extraction
-  (auto_fchp 3.1.0), and cleanup: the MiniSEED files, the 2.9 workspace, and the staged 1.3 files go;
-  the event folder keeps its metadata, `sis/`, logs, and `reprocess.json`.
+* `run` hands the 1.3 *unprocessed* traces to gmprocess 2.9 unchanged, by their process level in the
+  1.3 workspace:
+  * raw counts (FDSN data) are written as MiniSEED and go through gmprocess's own assemble, which
+    applies the SIS snapshot. 1.3 stored some of them as floats (segments it merged or
+    interpolated); these are written as floats, not rounded, and gmprocess's "raw data type is not
+    integer" check is waived for exactly those traces (`float_counts` in the report);
+  * data a format reader had already converted (CESMD's DMG and COSMOS files: cm/s², response
+    removed, often network `--`) can't be written as raw data. They are read from the 1.3 workspace
+    with gmprocess 2.9's own reader, with their units, process level, and response-removal mark, and
+    added to the workspace after assembling, as 2.9 reads such files itself (`physical_units`);
+* then `gmrecords process_waveforms` with the generation's config, gmcr's extraction (auto_fchp
+  3.1.0), and cleanup: the MiniSEED files, the 2.9 workspace, and the staged 1.3 files go; the event
+  folder keeps its metadata, `sis/`, logs, `export.json`, and `reprocess.json`.
 
 ### 6.0 One-time setup
 
@@ -482,7 +488,7 @@ cat $SCRATCH/gmcr29_run/events/b001/<event id>/reprocess.json
 The first three tasks are the batch's largest events, so the test also shows the worst-case memory
 and time. Check `$SCRATCH/gmcr29_run/events/b001/prepare.json` (SIS outcomes per event: `usable` for
 most CI/NC/BK stations, `no_coverage` for networks outside ANSS SIS) and the report: status `ok`, `n_ok`
-close to `n_traces`, few `physical_units`, and the time per stage, which sets the node-hours of the
+close to `n_traces`, and the time per stage, which sets the node-hours of the
 rest. Then the batches:
 
 ```bash
