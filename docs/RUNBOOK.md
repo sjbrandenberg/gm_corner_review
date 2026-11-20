@@ -452,6 +452,11 @@ workspace files are reprocessed as one, and a station reviewed in two files once
     removed, often network `--`) can't be written as raw data. They are read from the 1.3 workspace
     with gmprocess 2.9's own reader, with their units, process level, and response-removal mark, and
     added to the workspace after assembling, as 2.9 reads such files itself (`physical_units`);
+  * non-free-field stations are kept. With SIS metadata, gmprocess 2.9 knows each instrument's housing
+    and its own assemble drops every one that isn't free field (large vaults, building bases,
+    tunnels, dams, downhole arrays: about 3% of the training reviews); NGA-West3 keeps them, labelled
+    by station type, so gmcr's assemble (`gmcr.reprocess.assemble_event`) keeps them and the
+    generation's config doesn't reject them (`check_free_field: reject_non_free_field: False`);
 * then `gmrecords process_waveforms` with the generation's config, gmcr's extraction (auto_fchp
   3.1.0), and cleanup: the MiniSEED files, the 2.9 workspace, and the staged 1.3 files go; the event
   folder keeps its metadata, `sis/`, logs, `export.json`, and `reprocess.json`.
@@ -513,6 +518,10 @@ After each job, the batch's staging folder is empty except for the files of even
 nothing to reprocess. To retry the failures, rerun
 `SKIP_TRANSFER=1 bash tacc/run_reprocess_batch.sh <batch>`. To fetch an event's SIS metadata again,
 delete its `sis/` folder and rerun.
+
+To rerun some events (e.g. after a fix), `tacc/redo_events.py` clears their outputs and writes a Globus
+batch file that stages their 1.3 files again; `--unmatched` picks the events whose reviewed
+instruments are missing from the reprocessed features (after 6.2). Its docstring has the steps.
 
 ### 6.2 Labels
 

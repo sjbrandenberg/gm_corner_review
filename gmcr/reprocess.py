@@ -23,7 +23,8 @@ The analysts reviewed records processed with gmprocess 1.3. To train the gmproce
     (gmcr.extract --metadata-only into RECORDS_DIR, for scripts/record_status.py: all traces, also
     those gmprocess or the analyst rejected); then hands the 1.3 unprocessed traces of the reviewed
     instruments to gmprocess 2.9 unchanged (export_waveforms, assemble_event), runs gmprocess's
-    assemble and `gmrecords process_waveforms` with the generation's config,
+    assemble (keeping non-free-field stations, see assemble_event) and `gmrecords process_waveforms`
+    with the generation's config,
     extracts gmcr's features from the new workspace (generation gmprocess-2.9) into FEATURES_DIR,
     then deletes the MiniSEED files and the workspace (--keep keeps them) and, with
     --delete-source, the staged 1.3 files. Writes reprocess.json (status, counts, timings); events
@@ -455,11 +456,15 @@ def export_waveforms(event_dir):
 
 
 def assemble_event(event_dir):
-    """gmprocess 2.9's assemble for one exported event folder, run in this process (see
-    export_waveforms): the MiniSEED traces through gmprocess's assemble, with its "raw data type is
-    not integer" check waived only for the float count traces export.json lists, then the
-    physical-unit streams from the 1.3 workspaces added as unprocessed streams. Writes
-    <event_dir>/workspace.h5 and gmrecords_assemble.log."""
+    """gmprocess 2.9's assemble for one event folder, run in this process, as the generation uses it:
+    the raw files through gmprocess's assemble (which applies the SIS snapshot) **keeping
+    non-free-field stations**, which gmprocess's own assemble always drops (vaults, building bases,
+    dams, downhole arrays: NGA-West3 keeps them, labelled by station type). For an event exported
+    from 1.3 (export.json, see export_waveforms), also waives gmprocess's "raw data type is not
+    integer" check for exactly the float count traces it lists and adds the physical-unit streams
+    from the 1.3 workspaces. Without export.json (an event gmrecords downloaded), only the first part:
+    use `python -m gmcr.reprocess assemble EVENT_DIR` in place of `gmrecords assemble`.
+    Writes <event_dir>/workspace.h5 and gmrecords_assemble.log."""
     import logging as log
     from importlib.metadata import version
 
@@ -469,9 +474,16 @@ def assemble_event(event_dir):
     from gmprocess.utils import assemble_utils
     from gmprocess.utils.config import get_config
 
+    class KeepNonFree(StreamCollection):
+        """gmprocess's StreamCollection, never dropping non-free-field streams."""
+
+        def __init__(self, streams=None, drop_non_free=False, **kwargs):
+            super().__init__(streams, drop_non_free=False, **kwargs)
+
     event_dir = Path(event_dir)
     log.basicConfig(filename=str(event_dir / "gmrecords_assemble.log"), level=log.INFO, force=True)
-    exp = json.loads((event_dir / EXPORT).read_text())
+    exp_path = event_dir / EXPORT
+    exp = json.loads(exp_path.read_text()) if exp_path.exists() else {"float_counts": [], "inject": {}}
     waived = {t.replace(".--.", "..") for t in exp["float_counts"]}
     fail = StationTrace.fail
 
@@ -485,11 +497,13 @@ def assemble_event(event_dir):
     gmp_version = version("gmprocess")
     (event_dir / "workspace.h5").unlink(missing_ok=True)
     StationTrace.fail = fail_unless_waived
+    assemble_utils.StreamCollection = KeepNonFree
     try:
         ws = assemble_utils.assemble(event_dir.name, None, config, event_dir.parent, gmp_version,
                                      "default")
     finally:
         StationTrace.fail = fail
+        assemble_utils.StreamCollection = StreamCollection
     if ws is None:
         raise RuntimeError(f"gmprocess's assemble found no event in {event_dir}")
     try:
@@ -504,7 +518,7 @@ def assemble_event(event_dir):
             finally:
                 w13.close()
             if streams:
-                ws.add_streams(event, StreamCollection(streams, config=config),
+                ws.add_streams(event, StreamCollection(streams, drop_non_free=False, config=config),
                                label=UNPROCESSED, gmprocess_version=gmp_version)
                 log.info("added %d physical-unit streams from %s", len(streams), f)
     finally:

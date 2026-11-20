@@ -73,8 +73,12 @@ windows:
         min_signal_duration: 5.0
 
 processing:
+    # NGA-West3 keeps records from vaults, building bases, dams, downhole arrays, etc., labelled by
+    # station type in the database, and 1.3 couldn't tell them apart anyway. gmprocess 2.9 knows the
+    # housing from ANSS SIS and would reject them here; gmcr's assemble (gmcr.reprocess.assemble_event)
+    # also keeps them, where gmprocess's own assemble drops them.
     - check_free_field:
-        reject_non_free_field: True
+        reject_non_free_field: False
     - check_instrument:
         n_max: 3
         n_min: 2

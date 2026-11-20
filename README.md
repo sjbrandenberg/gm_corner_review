@@ -47,6 +47,7 @@ tacc/run_reprocess_batch.sh  stage + prepare one batch, submit its reprocessing 
 tacc/reprocess.slurm   gmprocess 2.9 + extraction of prepared events, one event per task
 tacc/make_reprocess_tasks.py  task list of a prepared batch; --report summarizes all events
 tacc/stage_batch.sh    stage one Globus batch and wait (used by both run_*batch.sh)
+tacc/redo_events.py    clear some reprocessed events' outputs and stage their 1.3 files again
 scripts/transfer_labels.py  the analysts' 1.3 decisions joined to reprocessed features (training tables)
 scripts/record_status.py    every record with its outcome (accepted / rejected by gmprocess or analyst) + metadata
 gmcr/modeling.py       datasets, leakage-safe features, event-grouped CV, metrics, log-linear/Tobit model
