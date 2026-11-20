@@ -198,7 +198,8 @@ def trace_features(ws, trace_id, compute_psa=True, fchp_variants=False,
             lo, hi = snr_band_edges(snr_f, snr, thr)
             rec[f"snr{int(thr)}_flo"], rec[f"snr{int(thr)}_fhi"] = lo, hi
         band = (snr_f >= 0.1) & (snr_f <= 10)
-        rec["snr_max_0p1_10"] = float(np.nanmax(snr[band])) if band.any() else np.nan
+        in_band = snr[band][np.isfinite(snr[band])]  # all NaN for an all-zero record
+        rec["snr_max_0p1_10"] = float(in_band.max()) if in_band.size else np.nan
         for f0 in (0.1, 0.3, 1.0, 3.0, 10.0):
             rec[f"snr_at_{f0:g}hz"] = float(np.interp(f0, snr_f, snr, left=np.nan, right=np.nan))
     for name, key in (("SmoothSignalSpectrum", "fas_signal"), ("SmoothNoiseSpectrum", "fas_noise")):
@@ -232,18 +233,26 @@ def trace_features(ws, trace_id, compute_psa=True, fchp_variants=False,
 
     acc_u, dt, nt = gr.gui_unprocessed_acc(tr_u, tr_p, inv, prov)
     rec["preevent_noise_s"] = nt
-    try:
-        rec["fchp_gui"] = gr.gui_fchp(acc_u, dt, nt, auto_fchp=auto_fchp)
-    except ValueError as exc:  # e.g. NaN residual at fchp_min: no automatic corner
+    dead = not np.any(acc_u)  # all zeros: auto_fchp and the displacement ratios are all NaN
+    if dead:
         rec["fchp_gui"] = np.nan
-        rec["gui_error"] = str(exc)
+        rec["gui_error"] = "all-zero record"
+    else:
+        try:
+            rec["fchp_gui"] = gr.gui_fchp(acc_u, dt, nt, auto_fchp=auto_fchp)
+        except ValueError as exc:  # e.g. NaN residual at fchp_min: no automatic corner
+            rec["fchp_gui"] = np.nan
+            rec["gui_error"] = str(exc)
     rec["gui_at_cap"] = (rec["fchp_gui"] >= GUI_FCHP_CAP * (1 - 1e-6)
                          if np.isfinite(rec["fchp_gui"]) else np.nan)
     rec["pga_unproc_g"] = float(np.max(np.abs(acc_u)) / 9.81)
 
     trial = np.concatenate([FCHP_GRID, [rec["fchp_gmp"], rec["fchp_gui"]]])
     trial = np.where(np.isfinite(trial) & (trial > 0), trial, FCHP_GRID[0])
-    poly, pre = gr.displacement_ratio_curves(acc_u, dt, nt, trial, auto_fchp=auto_fchp)
+    if dead:
+        poly = pre = np.full(len(trial), np.nan)
+    else:
+        poly, pre = gr.displacement_ratio_curves(acc_u, dt, nt, trial, auto_fchp=auto_fchp)
     curves["poly_ratio"] = poly[:len(FCHP_GRID)].astype(np.float32)
     curves["pre_disp_ratio"] = pre[:len(FCHP_GRID)].astype(np.float32)
     rec["poly_ratio_at_gmp"], rec["poly_ratio_at_gui"] = poly[-2], poly[-1]
