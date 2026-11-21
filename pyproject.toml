@@ -15,8 +15,12 @@ dependencies = ["numpy", "scipy", "h5py", "obspy>=1.4.1", "pandas", "pyarrow", "
 ml = ["lightgbm"]
 
 [tool.setuptools]
-packages = ["gmcr"]
+# gmcr/trained and gmcr/conf hold only data, but Python can import them (as namespace packages), so
+# setuptools wants them listed as packages, with their files as their own package data.
+packages = ["gmcr", "gmcr.trained", "gmcr.conf"]
 
 [tool.setuptools.package-data]
 # trained models exported with scripts/export_models.py (gmcr/trained/<generation>/<name>/)
-gmcr = ["trained/*/*/*", "conf/*/*.yml"]
+"gmcr.trained" = ["*/*/*"]
+# gmprocess configs of the model generations (gmcr/conf/<generation>/nga.yml)
+"gmcr.conf" = ["*/*.yml"]
